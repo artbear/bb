@@ -60,6 +60,54 @@ describe("SidebarTouchSensor", () => {
     expect(onDragEnd).toHaveBeenCalledTimes(1);
   });
 
+  it("claims touchmoves once armed so native scroll and drawer swipes cannot run alongside the drag", async () => {
+    function Harness() {
+      const { dndContextProps } = useSidebarReorderDnd({
+        onDragEnd: vi.fn(),
+        touchSensor: SidebarTouchSensor,
+      });
+      return <DndContext {...dndContextProps}><DraggableRow /></DndContext>;
+    }
+    const { getByText } = render(<Harness />);
+    const row = getByText("Thread");
+
+    fireEvent.touchStart(row, { touches: [{ clientX: 10, clientY: 10 }] });
+    expect(fireEvent.touchMove(row, { touches: [{ clientX: 13, clientY: 10 }] })).toBe(true);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 550)));
+    expect(fireEvent.touchMove(row, { touches: [{ clientX: 18, clientY: 10 }] })).toBe(false);
+    fireEvent.touchEnd(row, { touches: [] });
+  });
+
+  it("ends the drag when the touched row remounts mid-drag", async () => {
+    const onDragStart = vi.fn();
+    const onDragEnd = vi.fn();
+    function Harness({ rowKey }: { rowKey: string }) {
+      const { dndContextProps } = useSidebarReorderDnd({
+        onDragStart,
+        onDragEnd,
+        touchSensor: SidebarTouchSensor,
+      });
+      return <DndContext {...dndContextProps}><DraggableRow key={rowKey} /></DndContext>;
+    }
+    const { getByText, rerender } = render(<Harness rowKey="before" />);
+    const row = getByText("Thread");
+
+    fireEvent.touchStart(row, { touches: [{ clientX: 10, clientY: 10 }] });
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 550)));
+    fireEvent.touchMove(row, { touches: [{ clientX: 10, clientY: 40 }] });
+    await waitFor(() => expect(onDragStart).toHaveBeenCalledTimes(1));
+
+    rerender(<Harness rowKey="after" />);
+    expect(row.isConnected).toBe(false);
+    fireEvent.touchEnd(row, { touches: [] });
+    await waitFor(() => expect(onDragEnd).toHaveBeenCalledTimes(1));
+
+    const remounted = getByText("Thread");
+    fireEvent.touchStart(remounted, { touches: [{ clientX: 50, clientY: 50 }] });
+    fireEvent.touchEnd(remounted, { touches: [] });
+    expect(onDragEnd).toHaveBeenCalledTimes(1);
+  });
+
   function touchMoveListenerCalls(spy: {
     mock: { calls: readonly (readonly unknown[])[] };
   }) {
