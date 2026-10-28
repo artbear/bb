@@ -128,7 +128,16 @@ function Host({ shown }: { shown: boolean }) {
 let restoreLayout: (() => void) | null = null;
 
 function getScrollElement() {
-  return document.querySelector<HTMLElement>("[data-page-scroll-viewport]");
+  const walker = document.createTreeWalker(document, NodeFilter.SHOW_ELEMENT, {
+    acceptNode(node) {
+      return node instanceof HTMLElement &&
+        node.hasAttribute("data-page-scroll-viewport")
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_SKIP;
+    },
+  });
+  const element = walker.nextNode();
+  return element instanceof HTMLElement ? element : null;
 }
 
 function installOpeningLayout(
