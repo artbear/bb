@@ -28,6 +28,9 @@ jobs:
         shell: bash
         run: bash .github/actions/setup-workspace/install-dependencies.sh --ignore-scripts --filter bb --filter '@bb/server...' --filter '@bb/host-daemon...' --filter '@bb/app...' --filter 'bb-plugin-*...'
       - name: Warm server shard and prerequisites
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: pnpm exec turbo run test --filter=@bb/server --output-logs=errors-only --concurrency=4
       - name: Compare complete server shards
         env:
