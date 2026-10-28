@@ -89,7 +89,24 @@ export const usageResourceListSchema = z.object({
     ),
   resources: z.array(usageResourceSchema),
 });
+export const resetCreditsSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("ok"),
+    availableCount: z.number().int().nonnegative(),
+    credits: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          expiresAt: z.iso.datetime({ offset: true }).nullable(),
+        }),
+      )
+      .max(200),
+  }),
+  z.object({ status: z.literal("error"), message: z.string().min(1) }),
+]);
+
 export const usageMeasurementSchema = z.object({
+  resetCredits: resetCreditsSchema.nullable().optional(),
   accountKey: usageAccountKeySchema,
   observedAt: z
     .number()

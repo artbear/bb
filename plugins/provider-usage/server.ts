@@ -148,6 +148,7 @@ function resourceProvider(
         }
       : {}),
     id: `${pluginId}:${resource.id}`,
+    resetCredits: measurement?.resetCredits ?? null,
     accountLabel:
       resource.scope.kind === "shared"
         ? (measurement?.usage.accountEmail ?? resource.label)

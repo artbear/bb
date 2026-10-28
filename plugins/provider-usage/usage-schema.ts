@@ -35,6 +35,28 @@ const iconTintSchema = z.strictObject({
 });
 
 export const usageProviderSchema = z.strictObject({
+  resetCredits: z.optional(
+    z.nullable(
+      z.discriminatedUnion("status", [
+        z.strictObject({
+          status: z.literal("ok"),
+          availableCount: z.number().check(z.int(), z.nonnegative()),
+          credits: z
+            .array(
+              z.strictObject({
+                id: nonemptyStringSchema,
+                expiresAt: z.nullable(z.iso.datetime({ offset: true })),
+              }),
+            )
+            .check(z.maxLength(200)),
+        }),
+        z.strictObject({
+          status: z.literal("error"),
+          message: nonemptyStringSchema,
+        }),
+      ]),
+    ),
+  ),
   id: nonemptyStringSchema,
   providerId: nonemptyStringSchema,
   accountLabel: z.nullable(nonemptyStringSchema),

@@ -5,6 +5,12 @@ more than one provider, the card opens on an **All** tab that stacks every provi
 tab's accounts, each marked with its provider icon. Provider tabs use provider icons,
 with pooled accounts stacked under each provider. Each account shows its plan and,
 per usage window, a bar, the percent used, and the time until reset.
+Codex also shows its available banked resets and the two earliest unexpired
+redemption deadlines in Moscow time. These are deadlines to use a saved reset,
+not scheduled automatic refreshes. Entries without an expiration are marked as
+non-expiring; a collection failure is shown separately from a zero balance.
+Clicking a Codex quota row shows the full automatic reset date in Moscow time.
+The settings page shows the same banked-reset deadlines.
 The card lists account metadata cheaply, then fetches the accounts on the selected
 tab. Unopened tabs have no quota badge until measured, and a badge shows only while
 that provider's accounts are off screen. Shared sources such as Account Pooler are selected by default; an explicit
@@ -26,6 +32,10 @@ to inspect their published contracts. RPC calls accept JSON through
 
 `bb settings usage --json` and `bb.sdk.system.usageLimits()` remain the
 host-local provider-maintenance view; they do not aggregate shared pool accounts.
+Banked-reset details are available through `provider-usage.v1.getResource` as
+the optional `resetCredits` measurement field and through the display plugin's
+`getUsage` RPC on each account. Existing sources that omit the field remain
+compatible. The host-local maintenance command is unchanged.
 
 Codex, Claude Code, and ACP provider plugins explicitly implement the usage contract
 for their own providers. Account Pooler implements it for shared accounts. The

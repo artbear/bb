@@ -24,6 +24,15 @@ it("publishes only its own maintenance providers without a display and only meas
   }));
   let removed = false;
   const { bb, harness } = createFakePluginHost({
+    experimental_callHostRpc: async ({ method, hostId }) => {
+      expect(method).toBe("codex.usage.resetCredits");
+      expect(hostId).toBe("online");
+      return {
+        status: "ok",
+        availableCount: 1,
+        credits: [{ id: "reset", expiresAt: "2026-12-01T00:00:00Z" }],
+      };
+    },
     sdk: {
       hosts: {
         list: async () => [
@@ -84,6 +93,11 @@ it("publishes only its own maintenance providers without a display and only meas
     );
     await expect(read("online", "foreign")).rejects.toThrow("no longer exists");
     expect(await read("online", "codex")).toMatchObject({
+      resetCredits: {
+        status: "ok",
+        availableCount: 1,
+        credits: [{ id: "reset", expiresAt: "2026-12-01T00:00:00Z" }],
+      },
       accountKey: null,
       usage: {
         status: "ok",
