@@ -26,8 +26,13 @@ try {
     const durations = [];
     for (const file of report.testResults) {
       const name = file.name.replaceAll('\\', '/').split('/apps/server/').at(-1);
-      durations.push({ name, seconds: (file.endTime - file.startTime) / 1000 });
-      for (const test of file.assertionResults) inventory.push([name, test.fullName, test.status]);
+      durations.push({ name, seconds: (file.endTime - file.startTime) / 1000, startTime: file.startTime, endTime: file.endTime });
+      for (const test of file.assertionResults) {
+        const title = name === 'test/threads/thread-create-helpers.test.ts'
+          ? test.fullName.replace(/(preserves placement at creation for \{"sendAt":)\d+(\})$/, '$1<timestamp>$2')
+          : test.fullName;
+        inventory.push([name, title, test.status]);
+      }
     }
     inventory.sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const serialized = JSON.stringify(inventory);
