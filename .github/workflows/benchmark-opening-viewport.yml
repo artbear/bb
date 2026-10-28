@@ -1,0 +1,45 @@
+name: Compare opening viewport in Windows app shard
+on:
+  push:
+    branches: [bb/benchmark-opening-viewport]
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: blacksmith-4vcpu-windows-2025
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        order: [baseline-first, candidate-first]
+    env:
+      BB_CI_TEST_SHARD: '2/4'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.x
+          package-manager-cache: false
+      - run: npm install --global pnpm@9.15.0 --ignore-scripts
+      - uses: ./.github/actions/windows-dependency-cache
+        timeout-minutes: 1
+        continue-on-error: true
+      - name: Install dependencies
+        shell: bash
+        run: bash .github/actions/setup-workspace/install-dependencies.sh --ignore-scripts --filter bb --filter '@bb/server...' --filter '@bb/host-daemon...' --filter '@bb/app...' --filter 'bb-plugin-*...'
+      - name: Warm app shard and prerequisites
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: pnpm exec turbo run test --filter=@bb/app --output-logs=errors-only --concurrency=2
+      - name: Compare complete app shards
+        env:
+          BENCHMARK_ORDER: ${{ matrix.order }}
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: node .github/benchmarks/opening-viewport.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: opening-viewport-${{ matrix.order }}
+          path: ${{ runner.temp }}/opening-viewport/
