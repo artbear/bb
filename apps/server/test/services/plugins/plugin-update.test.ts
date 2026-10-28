@@ -388,7 +388,7 @@ describe("plugin update service and routes", () => {
   });
 
   const test = it.extend<{ fixture: UpdateFixture }>({
-    fixture: async ({}, useFixture) => {
+    fixture: async ({}, runTest) => {
       const db = createMigratedConnection();
       const workDir = await mkdtemp(join(tmpdir(), "bb-plugin-update-"));
       const repo = join(workDir, "repo");
@@ -434,7 +434,7 @@ describe("plugin update service and routes", () => {
           createPluginInstallJobs({ notifyChanged: () => {} }),
           updateJobs,
         );
-        await useFixture(fixture);
+        await runTest(fixture);
       } finally {
         await fixture.service.stop();
         db.$client.close();
