@@ -12,6 +12,10 @@ import { browserRequestProblem } from "../browser-request-guard.js";
 import type { AppDeps } from "../types.js";
 import type { HostDaemonRpcCommand } from "@bb/host-daemon-contract";
 import {
+  probeAbsolutePathOnHost,
+  resolveHostIdForAbsolutePath,
+} from "../services/hosts/absolute-path-host.js";
+import {
   callHostOnlineRpcForWork,
   callHostRetryableOnlineRpc,
 } from "../services/hosts/online-rpc.js";
@@ -203,7 +207,6 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
       await next();
     });
   }
-
 
   const runHostFileMutationCommand = <TCommand extends HostDaemonRpcCommand>(
     hostId: string,
@@ -402,11 +405,23 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(threadRoutes.hostFile, async (context) => {
-    const hostId = requireThreadEnvironmentHostId(
+    const preferredHostId = requireThreadEnvironmentHostId(
       deps,
       context.req.param("id"),
     );
     const file = parseAbsoluteHostFile(context.req.param("filePath"));
+    const absolutePath = joinHostPath(file.rootPath, file.segments);
+    const hostId = await resolveHostIdForAbsolutePath({
+      candidates: deps.hub.listConnectedHostIds().map((candidateHostId) => ({
+        hostId: candidateHostId,
+        platform: deps.hub.getDaemonPlatformForHost(candidateHostId),
+      })),
+      path: absolutePath,
+      preferredHostId,
+      preferredPlatform: deps.hub.getDaemonPlatformForHost(preferredHostId),
+      probePath: (candidateHostId) =>
+        probeAbsolutePathOnHost(deps, candidateHostId, absolutePath),
+    });
     return serveRootedFile(
       deps,
       context.req.raw,
