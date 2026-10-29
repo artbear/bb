@@ -2603,6 +2603,7 @@ function createCliEnv(args: CreateCliEnvArgs): NodeJS.ProcessEnv {
   const cliEnv: NodeJS.ProcessEnv = {
     ...args.env,
     BB_APP_VERSION: args.context.appVersion,
+    BB_CLI_REEXEC: "1",
     BB_HOST_DAEMON_PORT: String(args.context.daemonPort),
     [MACHINE_INSTALLER_ENV_NAME]: join(
       dirname(args.context.serverEntry),
@@ -2753,7 +2754,10 @@ export async function runBundledCliCommand(
   const launch = resolveBundledCliLaunch({
     args: args.args,
     bundledCliPath: join(args.context.daemonBundleDir, "bb"),
-    cliOverride: toOptionalString(args.env.BB_CLI) ?? null,
+    cliOverride:
+      args.env.BB_CLI_REEXEC === "1"
+        ? null
+        : (toOptionalString(args.env.BB_CLI) ?? null),
     nodePath: process.execPath,
     platform: process.platform,
   });

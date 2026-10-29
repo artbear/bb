@@ -181,6 +181,10 @@ SDK methods are `system.experimental_cliCommand()`,
 `BB_CLI_LAUNCHER` is an internal path the launcher passes to its server child;
 do not set it yourself.
 
+Official CLI entrypoints follow `BB_CLI` at most once per invocation. An
+installed launcher uses its bundled CLI after that hand-off, so an automation
+can set `BB_CLI` to the installed launcher without recursively starting it.
+
 ## In-App Updates
 
 In-app updates are on when you start bb with `npx bb-app start` (or a global

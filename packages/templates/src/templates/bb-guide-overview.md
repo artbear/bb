@@ -23,7 +23,7 @@ Context variables set automatically inside a thread environment:
 - BB_PROJECT_ID — current project
 - BB_THREAD_ID — current thread
 - BB_ENVIRONMENT_ID — current environment
-- BB_CLI — absolute path to the daemon-managed `bb` executable (prefer this if bare `bb` is wrong; official entrypoints also re-exec to it)
+- BB_CLI — absolute path to the daemon-managed `bb` executable (prefer this if bare `bb` is wrong; official entrypoints follow it at most once, including when it points to an installed launcher)
 
 Outside a thread the CLI targets http://127.0.0.1:38886; set BB_SERVER_URL (and
 BB_HOST_DAEMON_PORT) only for a deliberate non-default target.
