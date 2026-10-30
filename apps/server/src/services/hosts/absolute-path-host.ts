@@ -13,6 +13,12 @@ export interface AbsolutePathHostCandidate {
 
 type HostPathFlavor = "posix" | "windows";
 
+const CONFIRMED_POSIX_PLATFORMS = new Set<HostPlatform>([
+  "linux",
+  "darwin",
+  "wsl",
+]);
+
 export type AbsolutePathProbe = (hostId: string) => Promise<boolean | null>;
 
 interface ResolveHostIdForAbsolutePathArgs {
@@ -28,20 +34,13 @@ function pathFlavor(path: string): HostPathFlavor | null {
   return isWindowsHostPath(path) ? "windows" : "posix";
 }
 
-function preferredOpensFlavor(
-  platform: HostPlatform | null,
-  flavor: HostPathFlavor,
-): boolean {
-  if (flavor === "windows") return platform === "win32";
-  return platform !== "win32";
-}
-
-function candidateOpensFlavor(
+function platformOpensFlavor(
   platform: HostPlatform | null,
   flavor: HostPathFlavor,
 ): boolean {
   if (platform === null || platform === "unknown") return false;
-  return preferredOpensFlavor(platform, flavor);
+  if (flavor === "windows") return platform === "win32";
+  return CONFIRMED_POSIX_PLATFORMS.has(platform);
 }
 
 function unavailableMessage(flavor: HostPathFlavor): string {
@@ -63,7 +62,7 @@ function matchingHostIds(
   const hostIds: string[] = [];
   for (const candidate of args.candidates) {
     if (candidate.hostId === args.preferredHostId) continue;
-    if (!candidateOpensFlavor(candidate.platform, flavor)) continue;
+    if (!platformOpensFlavor(candidate.platform, flavor)) continue;
     hostIds.push(candidate.hostId);
   }
   return hostIds;
@@ -73,7 +72,7 @@ export async function resolveHostIdForAbsolutePath(
   args: ResolveHostIdForAbsolutePathArgs,
 ): Promise<string> {
   const flavor = pathFlavor(args.path);
-  if (flavor === null || preferredOpensFlavor(args.preferredPlatform, flavor)) {
+  if (flavor === null || platformOpensFlavor(args.preferredPlatform, flavor)) {
     return args.preferredHostId;
   }
 
