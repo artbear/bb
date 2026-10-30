@@ -456,4 +456,34 @@ describe("file content routes", () => {
       expect(commands).toHaveLength(commandCount);
     });
   });
+
+  it("restores a UNC path and reads it from the connected Windows machine", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedThreadFixture(harness, {
+        session: { platform: "linux" },
+      });
+      const { host, session } = seedHostSession(harness.deps, {
+        platform: "win32",
+      });
+      const commands = serveFiles(harness, {
+        hostId: host.id,
+        sessionId: session.id,
+        files: new Map([
+          [
+            "\\\\server\\share\\file.zip",
+            { bytes: Buffer.from("zip"), mimeType: "application/zip" },
+          ],
+        ]),
+      });
+
+      const response = await harness.app.request(
+        `/api/v1/threads/${thread.id}/host-files/unc%3Aserver/share/file.zip`,
+      );
+      expect(response.status).toBe(200);
+      expect(commands[0]).toMatchObject({
+        path: "\\\\server\\share\\file.zip",
+        rootPath: "\\\\server\\share\\",
+      });
+    });
+  });
 });

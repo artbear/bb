@@ -1,5 +1,6 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { parseUncWireSegments } from "@bb/domain";
 import type { Hono } from "hono";
 import {
   publicApiRoutes,
@@ -109,6 +110,16 @@ function parseAbsoluteHostFile(rawPath: string): {
   segments: string[];
 } {
   const segments = parseRelativeFileSegments(rawPath);
+  const unc = parseUncWireSegments(segments);
+  if (
+    unc.kind === "invalid" ||
+    (unc.kind === "unc" && unc.segments.length === 0)
+  ) {
+    throw createInvalidFilePathError();
+  }
+  if (unc.kind === "unc") {
+    return { rootPath: unc.rootPath, segments: unc.segments };
+  }
   const [firstSegment, ...rest] = segments;
   if (
     firstSegment === undefined ||
