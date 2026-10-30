@@ -120,6 +120,9 @@ function parseAbsoluteHostFile(rawPath: string): {
   if (unc.kind === "unc") {
     return { rootPath: unc.rootPath, segments: unc.segments };
   }
+  if (unc.kind === "posix") {
+    return { rootPath: "/", segments: unc.segments };
+  }
   const [firstSegment, ...rest] = segments;
   if (
     firstSegment === undefined ||

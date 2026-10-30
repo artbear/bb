@@ -20,6 +20,8 @@ const WINDOWS_DRIVE_PATH_PATTERN = /^([A-Za-z]):(?:[\\/]+|$)/u;
 const WINDOWS_UNC_PATH_PATTERN = /^[\\/]{2}([^\\/]+)[\\/]+([^\\/]+)/u;
 const WINDOWS_SEPARATOR_PATTERN = /[\\/]+/u;
 const UNC_WIRE_PREFIX = "unc:";
+const POSIX_UNC_WIRE_PATTERN = /^(~)*unc:/u;
+const ESCAPED_POSIX_UNC_WIRE_PATTERN = /^~(~)*unc:/u;
 
 function collapseSegments(rawSegments: string[]): string[] {
   const segments: string[] = [];
@@ -115,7 +117,8 @@ export function toHostFileUrlPath(absolutePath: string): string {
     const head = `${UNC_WIRE_PREFIX}${server}/${share}`;
     return rest.length === 0 ? head : `${head}/${rest}`;
   }
-  return absolutePath.replace(/\\/gu, "/").replace(/^\/+/u, "");
+  const relative = absolutePath.replace(/\\/gu, "/").replace(/^\/+/u, "");
+  return POSIX_UNC_WIRE_PATTERN.test(relative) ? `~${relative}` : relative;
 }
 
 export function parseUncWireSegments(
@@ -123,7 +126,12 @@ export function parseUncWireSegments(
 ):
   | { kind: "none" }
   | { kind: "invalid" }
+  | { kind: "posix"; segments: string[] }
   | { kind: "unc"; rootPath: string; segments: string[] } {
+  const relative = segments.join("/");
+  if (ESCAPED_POSIX_UNC_WIRE_PATTERN.test(relative)) {
+    return { kind: "posix", segments: relative.slice(1).split("/") };
+  }
   const first = segments[0];
   if (first === undefined || !first.startsWith(UNC_WIRE_PREFIX)) {
     return { kind: "none" };
