@@ -15,5 +15,11 @@ describe("buildThreadHostFileContentUrl", () => {
     expect(buildThreadHostFileContentUrl("thr_1", "/tmp/file.zip")).toBe(
       "/api/v1/threads/thr_1/host-files/tmp/file.zip",
     );
+    expect(
+      buildThreadHostFileContentUrl("thr_1", "/unc:server/share/file.zip"),
+    ).toBe("/api/v1/threads/thr_1/host-files/~unc%3Aserver/share/file.zip");
+    expect(buildThreadHostFileContentUrl("thr_1", "/unc:notes.txt")).toBe(
+      "/api/v1/threads/thr_1/host-files/~unc%3Anotes.txt",
+    );
   });
 });

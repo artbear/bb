@@ -50,6 +50,19 @@ describe("host-path", () => {
       kind: "invalid",
     });
     expect(parseUncWireSegments(["tmp", "file.zip"])).toEqual({ kind: "none" });
+    expect(toHostFileUrlPath("/unc:server/share/file.zip")).toBe(
+      "~unc:server/share/file.zip",
+    );
+    expect(toHostFileUrlPath("/unc:notes.txt")).toBe("~unc:notes.txt");
+    expect(toHostFileUrlPath("/~unc:notes.txt")).toBe("~~unc:notes.txt");
+    expect(parseUncWireSegments(["~unc:server", "share", "file.zip"])).toEqual({
+      kind: "posix",
+      segments: ["unc:server", "share", "file.zip"],
+    });
+    expect(parseUncWireSegments(["~unc:notes.txt"])).toEqual({
+      kind: "posix",
+      segments: ["unc:notes.txt"],
+    });
   });
 
   it("normalizes each flavor to a single spelling", () => {
