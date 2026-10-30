@@ -15,6 +15,7 @@ let launcher;
 let alias;
 let override;
 let guard;
+let legacyLauncher;
 
 describe.skipIf(process.platform === "win32")("installed CLI hand-off", () => {
   beforeAll(async () => {
@@ -24,6 +25,7 @@ describe.skipIf(process.platform === "win32")("installed CLI hand-off", () => {
     alias = join(root, "bb-alias");
     override = join(root, "bb-override");
     guard = join(root, "guard.mjs");
+    legacyLauncher = join(root, "legacy-launcher.mjs");
     await writeFile(
       join(root, "package.json"),
       JSON.stringify({ type: "module", version: "1.0.0" }),
@@ -80,6 +82,20 @@ console.log(JSON.stringify({
       { mode: 0o755 },
     );
     await symlink(launcher, alias);
+    await writeFile(
+      legacyLauncher,
+      `#!/usr/bin/env node
+import { spawnSync } from "node:child_process";
+const target = process.env.BB_CLI;
+const result = spawnSync(
+  target ?? process.execPath,
+  target ? process.argv.slice(2) : [${JSON.stringify(join(bundleDir, "bb"))}, ...process.argv.slice(2)],
+  { env: process.env, stdio: "inherit" },
+);
+process.exit(result.status ?? 1);
+`,
+      { mode: 0o755 },
+    );
     await writeFile(
       guard,
       `const starts = Number(process.env.BB_TEST_CLI_STARTS ?? 0) + 1;
@@ -145,6 +161,15 @@ process.env.BB_TEST_CLI_STARTS = String(starts);
       argv: ["machine", "list", "--json"],
       handoff: "1",
       starts: 2,
+    });
+  });
+
+  it("reaches the bundled CLI through a legacy launcher that ignores the hand-off marker", async () => {
+    expect(await run({ BB_CLI: legacyLauncher })).toEqual({
+      target: "bundled",
+      argv: ["machine", "list", "--json"],
+      handoff: "1",
+      starts: 3,
     });
   });
 });

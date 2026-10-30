@@ -184,6 +184,10 @@ do not set it yourself.
 Official CLI entrypoints follow `BB_CLI` at most once per invocation. An
 installed launcher uses its bundled CLI after that hand-off, so an automation
 can set `BB_CLI` to the installed launcher without recursively starting it.
+The launcher consumes the override before starting the child: it removes
+`BB_CLI` from the child's environment and sets `BB_CLI_REEXEC=1`. Removing the
+override also prevents recursion when the selected launcher predates the
+hand-off marker.
 
 ## In-App Updates
 
