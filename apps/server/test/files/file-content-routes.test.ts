@@ -456,4 +456,71 @@ describe("file content routes", () => {
       expect(commands).toHaveLength(commandCount);
     });
   });
+
+  it("restores a UNC path and reads it from the connected Windows machine", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedThreadFixture(harness, {
+        session: { platform: "linux" },
+      });
+      const { host, session } = seedHostSession(harness.deps, {
+        platform: "win32",
+      });
+      const commands = serveFiles(harness, {
+        hostId: host.id,
+        sessionId: session.id,
+        files: new Map([
+          [
+            "\\\\server\\share\\file.zip",
+            { bytes: Buffer.from("zip"), mimeType: "application/zip" },
+          ],
+        ]),
+      });
+
+      const response = await harness.app.request(
+        `/api/v1/threads/${thread.id}/host-files/unc%3Aserver/share/file.zip`,
+      );
+      expect(response.status).toBe(200);
+      expect(commands[0]).toMatchObject({
+        path: "\\\\server\\share\\file.zip",
+        rootPath: "\\\\server\\share\\",
+      });
+    });
+  });
+
+  it("keeps a POSIX path that starts with the UNC wire prefix on the Linux host", async () => {
+    await withTestHarness(async (harness) => {
+      const { host, session, thread } = seedThreadFixture(harness, {
+        session: { platform: "linux" },
+      });
+      const commands = serveFiles(harness, {
+        hostId: host.id,
+        sessionId: session.id,
+        files: new Map([
+          [
+            "/unc:server/share/file.zip",
+            { bytes: Buffer.from("posix"), mimeType: "application/zip" },
+          ],
+          [
+            "/unc:notes.txt",
+            { bytes: Buffer.from("note"), mimeType: "text/plain" },
+          ],
+        ]),
+      });
+
+      const nested = await harness.app.request(
+        `/api/v1/threads/${thread.id}/host-files/~unc%3Aserver/share/file.zip`,
+      );
+      expect(nested.status).toBe(200);
+      const note = await harness.app.request(
+        `/api/v1/threads/${thread.id}/host-files/~unc%3Anotes.txt`,
+      );
+      expect(note.status).toBe(200);
+      const paths = commands.flatMap((command) =>
+        command.type === "host.read_file_chunk" ? [command.path] : [],
+      );
+      expect(new Set(paths)).toEqual(
+        new Set(["/unc:server/share/file.zip", "/unc:notes.txt"]),
+      );
+    });
+  });
 });

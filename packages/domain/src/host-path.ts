@@ -19,6 +19,9 @@ interface IsHostPathWithinArgs {
 const WINDOWS_DRIVE_PATH_PATTERN = /^([A-Za-z]):(?:[\\/]+|$)/u;
 const WINDOWS_UNC_PATH_PATTERN = /^[\\/]{2}([^\\/]+)[\\/]+([^\\/]+)/u;
 const WINDOWS_SEPARATOR_PATTERN = /[\\/]+/u;
+const UNC_WIRE_PREFIX = "unc:";
+const POSIX_UNC_WIRE_PATTERN = /^(~)*unc:/u;
+const ESCAPED_POSIX_UNC_WIRE_PATTERN = /^~(~)*unc:/u;
 
 function collapseSegments(rawSegments: string[]): string[] {
   const segments: string[] = [];
@@ -100,6 +103,49 @@ export function isWindowsUncHostPath(path: string): boolean {
 
 export function isAbsoluteHostPath(path: string): boolean {
   return parseHostPath(path) !== null;
+}
+
+export function toHostFileUrlPath(absolutePath: string): string {
+  const unc = WINDOWS_UNC_PATH_PATTERN.exec(absolutePath);
+  const server = unc?.[1];
+  const share = unc?.[2];
+  if (unc && server && share) {
+    const rest = absolutePath
+      .slice(unc[0].length)
+      .replace(/^[\\/]+/u, "")
+      .replace(/\\/gu, "/");
+    const head = `${UNC_WIRE_PREFIX}${server}/${share}`;
+    return rest.length === 0 ? head : `${head}/${rest}`;
+  }
+  const relative = absolutePath.replace(/\\/gu, "/").replace(/^\/+/u, "");
+  return POSIX_UNC_WIRE_PATTERN.test(relative) ? `~${relative}` : relative;
+}
+
+export function parseUncWireSegments(
+  segments: readonly string[],
+):
+  | { kind: "none" }
+  | { kind: "invalid" }
+  | { kind: "posix"; segments: string[] }
+  | { kind: "unc"; rootPath: string; segments: string[] } {
+  const relative = segments.join("/");
+  if (ESCAPED_POSIX_UNC_WIRE_PATTERN.test(relative)) {
+    return { kind: "posix", segments: relative.slice(1).split("/") };
+  }
+  const first = segments[0];
+  if (first === undefined || !first.startsWith(UNC_WIRE_PREFIX)) {
+    return { kind: "none" };
+  }
+  const server = first.slice(UNC_WIRE_PREFIX.length);
+  const share = segments[1];
+  if (server.length === 0 || share === undefined || share.length === 0) {
+    return { kind: "invalid" };
+  }
+  return {
+    kind: "unc",
+    rootPath: `\\\\${server}\\${share}\\`,
+    segments: segments.slice(2),
+  };
 }
 
 export function isHostPathRoot(path: string): boolean {
