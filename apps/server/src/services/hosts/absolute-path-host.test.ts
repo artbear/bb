@@ -8,6 +8,7 @@ import {
 const LINUX_PATH = "/home/node/bb/README.md";
 const WINDOWS_PATH =
   "C:\\Users\\Aptyp\\Downloads\\bb-server-recovery-20261029.zip";
+const UNC_PATH = "\\\\server\\share\\file.zip";
 
 const linux: AbsolutePathHostCandidate = {
   hostId: "host-linux",
@@ -146,6 +147,18 @@ describe("resolveHostIdForAbsolutePath", () => {
     ).resolves.toBe(windowsNotebook.hostId);
   });
 
+  it("opens a UNC path on the connected Windows machine", async () => {
+    await expect(
+      resolveHostIdForAbsolutePath({
+        candidates: [linux, windowsNotebook],
+        path: UNC_PATH,
+        preferredHostId: linux.hostId,
+        preferredPlatform: "linux",
+        probePath: vi.fn(),
+      }),
+    ).resolves.toBe(windowsNotebook.hostId);
+  });
+
   it("does not send a Windows path to a host with an unknown platform", async () => {
     await expect(
       resolveHostIdForAbsolutePath({
@@ -160,15 +173,29 @@ describe("resolveHostIdForAbsolutePath", () => {
     });
   });
 
-  it("keeps a POSIX path on the environment host when its platform is not known yet", async () => {
+  it("opens a POSIX path on a connected Linux machine when the preferred host has no confirmed platform", async () => {
     await expect(
       resolveHostIdForAbsolutePath({
-        candidates: [mac],
+        candidates: [linux],
         path: LINUX_PATH,
-        preferredHostId: linux.hostId,
+        preferredHostId: windowsNotebook.hostId,
         preferredPlatform: null,
         probePath: vi.fn(),
       }),
     ).resolves.toBe(linux.hostId);
+  });
+
+  it("does not treat an unknown platform as able to open a POSIX path", async () => {
+    await expect(
+      resolveHostIdForAbsolutePath({
+        candidates: [{ hostId: linux.hostId, platform: "unknown" }],
+        path: LINUX_PATH,
+        preferredHostId: linux.hostId,
+        preferredPlatform: "unknown",
+        probePath: vi.fn(),
+      }),
+    ).rejects.toMatchObject({
+      body: { code: "host_unavailable" },
+    });
   });
 });

@@ -11,6 +11,8 @@ import {
   isWindowsUncHostPath,
   joinHostPath,
   normalizeHostPath,
+  parseUncWireSegments,
+  toHostFileUrlPath,
 } from "../src/host-path.js";
 
 describe("host-path", () => {
@@ -26,6 +28,28 @@ describe("host-path", () => {
     expect(isAbsoluteHostPath("C:src")).toBe(false);
     expect(isWindowsUncHostPath("\\\\server\\share")).toBe(true);
     expect(isWindowsUncHostPath("C:\\src")).toBe(false);
+  });
+
+  it("keeps a UNC root in the host-file URL path", () => {
+    expect(toHostFileUrlPath("\\\\server\\share\\file.zip")).toBe(
+      "unc:server/share/file.zip",
+    );
+    expect(toHostFileUrlPath("//server/share/dir/file.zip")).toBe(
+      "unc:server/share/dir/file.zip",
+    );
+    expect(toHostFileUrlPath("C:\\Users\\me\\file.zip")).toBe(
+      "C:/Users/me/file.zip",
+    );
+    expect(toHostFileUrlPath("/tmp/file.zip")).toBe("tmp/file.zip");
+    expect(parseUncWireSegments(["unc:server", "share", "file.zip"])).toEqual({
+      kind: "unc",
+      rootPath: "\\\\server\\share\\",
+      segments: ["file.zip"],
+    });
+    expect(parseUncWireSegments(["unc:", "share"])).toEqual({
+      kind: "invalid",
+    });
+    expect(parseUncWireSegments(["tmp", "file.zip"])).toEqual({ kind: "none" });
   });
 
   it("normalizes each flavor to a single spelling", () => {
