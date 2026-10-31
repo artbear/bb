@@ -52,6 +52,11 @@ it("lists cheaply, fetches only the selected source/provider, preserves failed m
           };
     if (failure) throw new Error("Upstream failed");
     return {
+      resetCredits: {
+        status: "ok",
+        availableCount: 1,
+        credits: [{ id: "reset", expiresAt: "2026-12-01T00:00:00Z" }],
+      },
       observedAt: 123,
       usage: {
         status: "ok",
@@ -143,7 +148,27 @@ it("lists cheaply, fetches only the selected source/provider, preserves failed m
       machineIds: ["source:pool"],
       providerIds: ["codex"],
     };
-    await host.harness.behavior.callRpc("getUsage", target);
+    expect(
+      await host.harness.behavior.callRpc("getUsage", target),
+    ).toMatchObject({
+      machines: [
+        { id: "host" },
+        {
+          id: "source:pool",
+          providers: [
+            {
+              resetCredits: {
+                status: "ok",
+                availableCount: 1,
+                credits: [{ id: "reset", expiresAt: "2026-12-01T00:00:00Z" }],
+              },
+            },
+            { resetCredits: { status: "ok", availableCount: 1 } },
+            { resetCredits: null },
+          ],
+        },
+      ],
+    });
     expect(
       rpc.mock.calls
         .filter(([args]) => args.method === usageFetchMethod)

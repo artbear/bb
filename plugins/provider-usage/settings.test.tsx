@@ -194,7 +194,8 @@ describe("UsageSettingsContent", () => {
     expect(html).toContain("first@example.com");
     expect(html).toContain("second@example.com");
     expect(html).not.toContain("local@example.com");
-    expect(html.match(/Resets in/g)).toHaveLength(3);
+    expect(html.match(/Resets in/g)).toHaveLength(1);
+    expect(html.match(/Сброс:/g)).toHaveLength(2);
   });
 
   it("renders loading before any source is known", () => {
