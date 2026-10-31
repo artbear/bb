@@ -52,6 +52,7 @@ import {
 } from "./usage-feedback.js";
 
 import { UsageSettings } from "./settings.js";
+import { CodexResetCredits, formatCodexResetDate } from "./reset-credits.js";
 
 export interface UsageStoreSnapshot {
   data: UsageSnapshot | null;
@@ -267,7 +268,13 @@ function UsageNotice({
 const USAGE_GRID_CLASS_NAME =
   "grid grid-cols-[max-content_minmax(0,1fr)_max-content_max-content] gap-x-3";
 
-function UsageWindow({ window }: { window: UsageWindowValue }) {
+function UsageWindow({
+  window,
+  providerId,
+}: {
+  window: UsageWindowValue;
+  providerId: string;
+}) {
   const [showReset, setShowReset] = useState(false);
   const reset = formatUsageReset(window.resetsAt);
   const countdown = formatResetCountdown(window.resetsAt);
@@ -318,7 +325,9 @@ function UsageWindow({ window }: { window: UsageWindowValue }) {
       </span>
       {showReset ? (
         <span className="col-span-full pb-1 text-2xs text-subtle-foreground">
-          {reset ?? "Reset time not reported."}
+          {providerId === "codex" && window.resetsAt !== null
+            ? `Сброс: ${formatCodexResetDate(window.resetsAt)}`
+            : (reset ?? "Reset time not reported.")}
           {window.cost === null ? "" : ` · ${value}`}
         </span>
       ) : null}
@@ -407,8 +416,15 @@ function AccountUsage({
         </p>
       ) : usage?.status === "ok" ? (
         usage.windows.map((window) => (
-          <UsageWindow key={window.label} window={window} />
+          <UsageWindow
+            key={window.label}
+            window={window}
+            providerId={account.providerId}
+          />
         ))
+      ) : null}
+      {usage?.status === "ok" && account.providerId === "codex" ? (
+        <CodexResetCredits value={account.resetCredits} />
       ) : null}
     </section>
   );
