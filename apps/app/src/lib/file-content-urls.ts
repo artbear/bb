@@ -2,6 +2,7 @@ import {
   getEnvironmentFilePreviewSourceRef,
   type EnvironmentFilePreviewSource,
 } from "@bb/client-core";
+import { toHostFileUrlPath } from "@bb/domain";
 import { apiClient, toRelativeUrl } from "./api-server";
 
 function encodePathSegments(path: string): string {
@@ -9,9 +10,7 @@ function encodePathSegments(path: string): string {
 }
 
 function encodeHostFilePath(absolutePath: string): string {
-  return encodePathSegments(
-    absolutePath.replace(/\\/gu, "/").replace(/^\/+/u, ""),
-  );
+  return encodePathSegments(toHostFileUrlPath(absolutePath));
 }
 
 interface PathClassificationArgs {

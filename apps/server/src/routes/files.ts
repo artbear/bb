@@ -1,5 +1,6 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { parseUncWireSegments } from "@bb/domain";
 import type { Hono } from "hono";
 import {
   publicApiRoutes,
@@ -11,6 +12,10 @@ import { ApiError } from "../errors.js";
 import { browserRequestProblem } from "../browser-request-guard.js";
 import type { AppDeps } from "../types.js";
 import type { HostDaemonRpcCommand } from "@bb/host-daemon-contract";
+import {
+  probeAbsolutePathOnHost,
+  resolveHostIdForAbsolutePath,
+} from "../services/hosts/absolute-path-host.js";
 import {
   callHostOnlineRpcForWork,
   callHostRetryableOnlineRpc,
@@ -105,6 +110,19 @@ function parseAbsoluteHostFile(rawPath: string): {
   segments: string[];
 } {
   const segments = parseRelativeFileSegments(rawPath);
+  const unc = parseUncWireSegments(segments);
+  if (
+    unc.kind === "invalid" ||
+    (unc.kind === "unc" && unc.segments.length === 0)
+  ) {
+    throw createInvalidFilePathError();
+  }
+  if (unc.kind === "unc") {
+    return { rootPath: unc.rootPath, segments: unc.segments };
+  }
+  if (unc.kind === "posix") {
+    return { rootPath: "/", segments: unc.segments };
+  }
   const [firstSegment, ...rest] = segments;
   if (
     firstSegment === undefined ||
@@ -203,7 +221,6 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
       await next();
     });
   }
-
 
   const runHostFileMutationCommand = <TCommand extends HostDaemonRpcCommand>(
     hostId: string,
@@ -402,11 +419,23 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(threadRoutes.hostFile, async (context) => {
-    const hostId = requireThreadEnvironmentHostId(
+    const preferredHostId = requireThreadEnvironmentHostId(
       deps,
       context.req.param("id"),
     );
     const file = parseAbsoluteHostFile(context.req.param("filePath"));
+    const absolutePath = joinHostPath(file.rootPath, file.segments);
+    const hostId = await resolveHostIdForAbsolutePath({
+      candidates: deps.hub.listConnectedHostIds().map((candidateHostId) => ({
+        hostId: candidateHostId,
+        platform: deps.hub.getDaemonPlatformForHost(candidateHostId),
+      })),
+      path: absolutePath,
+      preferredHostId,
+      preferredPlatform: deps.hub.getDaemonPlatformForHost(preferredHostId),
+      probePath: (candidateHostId) =>
+        probeAbsolutePathOnHost(deps, candidateHostId, absolutePath),
+    });
     return serveRootedFile(
       deps,
       context.req.raw,
