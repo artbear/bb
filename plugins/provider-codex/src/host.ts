@@ -17,11 +17,14 @@ import {
   type CodexAiTextResult,
 } from "./ai/host-contract.js";
 import { resolveCodexNativeRoots } from "./native-roots.js";
+import { codexResetCreditsHostContract } from "./reset-credits-contract.js";
+import { readCodexResetCredits } from "./reset-credits.js";
 
 export { experimental_providerBridge } from "./bridge/bridge.js";
 
 const codexHostContract = defineRpcContract({
   ...codexAiHostContract,
+  ...codexResetCreditsHostContract,
   ...experimental_nativeRootsHostContract,
 });
 
@@ -36,6 +39,8 @@ async function textResult(work: Promise<string>): Promise<CodexAiTextResult> {
 export default experimental_defineHostEntry({
   contract: codexHostContract,
   handlers: {
+    "codex.usage.resetCredits": (_input, context) =>
+      readCodexResetCredits(context.signal),
     resolveNativeRoots: (): Promise<ExperimentalNativeRootsResolveAnswer> =>
       resolveCodexNativeRoots({ homeDir: os.homedir(), env: process.env }),
     "codex.ai.complete": (input, context) =>
