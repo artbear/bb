@@ -2615,6 +2615,8 @@ function createCliEnv(args: CreateCliEnvArgs): NodeJS.ProcessEnv {
     NODE_ENV: "production",
   };
 
+  delete cliEnv.BB_CLI;
+
   if (toOptionalString(cliEnv.BB_SERVER_URL) === undefined) {
     cliEnv.BB_SERVER_URL = args.context.serverUrl;
   }

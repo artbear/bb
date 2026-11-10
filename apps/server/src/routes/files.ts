@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { probeAbsolutePathOnHost, resolveHostIdForAbsolutePath } from "../services/hosts/absolute-path-host.js";
 import type { Hono } from "hono";
 import {
   getRelativeHostPathSegments,
@@ -373,11 +374,23 @@ export function registerFileRoutes(app: Hono, deps: AppDeps): void {
   });
 
   get(threadRoutes.hostFile, async (context) => {
-    const hostId = requireThreadEnvironmentHostId(
+    const preferredHostId = requireThreadEnvironmentHostId(
       deps,
       context.req.param("id"),
     );
     const file = parseAbsoluteHostFile(context.req.param("filePath"));
+    const absolutePath = joinHostPathSegments(file.rootPath, ...file.segments);
+    const hostId = await resolveHostIdForAbsolutePath({
+      candidates: deps.hub.listConnectedHostIds().map((candidateHostId) => ({
+        hostId: candidateHostId,
+        platform: deps.hub.getDaemonPlatformForHost(candidateHostId),
+      })),
+      path: absolutePath,
+      preferredHostId,
+      preferredPlatform: deps.hub.getDaemonPlatformForHost(preferredHostId),
+      probePath: (candidateHostId) =>
+        probeAbsolutePathOnHost(deps, candidateHostId, absolutePath),
+    });
     return serveRootedFile(
       deps,
       context.req.raw,

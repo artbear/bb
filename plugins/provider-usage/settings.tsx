@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { providerUsageRpcContract, UsageRequest } from "./server.js";
+import { CodexResetCredits, formatCodexResetDate } from "./reset-credits.js";
 import {
   emptyUsageMessage,
   hasReportedUsage,
@@ -108,8 +109,17 @@ function usageWindowValue(window: UsageWindow): string {
   return `${formatUsdCents(window.cost.usedUsdCents, true)} / ${formatUsdCents(window.cost.limitUsdCents, false)}`;
 }
 
-function UsageWindowRow({ window }: { window: UsageWindow }) {
-  const reset = formatReset(window.resetsAt);
+function UsageWindowRow({
+  window,
+  providerId,
+}: {
+  window: UsageWindow;
+  providerId: string;
+}) {
+  const reset =
+    providerId === "codex" && window.resetsAt !== null
+      ? `Сброс: ${formatCodexResetDate(window.resetsAt)}`
+      : formatReset(window.resetsAt);
   return (
     <div className="space-y-1">
       <div className="flex items-baseline justify-between gap-2">
@@ -138,6 +148,7 @@ interface ProviderUsageBlockProps {
   accountLabel?: string;
   config: ProviderConfig;
   usage: ProviderUsage | undefined;
+  resetCredits?: UsageProvider["resetCredits"];
   isLoading: boolean;
   isError: boolean;
 }
@@ -212,6 +223,7 @@ function ProviderUsageBlock({
   accountLabel,
   config,
   usage,
+  resetCredits,
   isLoading,
   isError,
 }: ProviderUsageBlockProps) {
@@ -272,6 +284,9 @@ function ProviderUsageBlock({
           />
         </div>
       ) : null}
+      {usage?.status === "ok" && config.providerId === "codex" ? (
+        <CodexResetCredits value={resetCredits} />
+      ) : null}
     </section>
   );
 }
@@ -301,6 +316,7 @@ function UsageResourceGroup({
             accountLabel={email ?? undefined}
             config={config}
             usage={usage}
+            resetCredits={resource.resetCredits}
             isLoading={isLoading}
             isError={isError && usage === undefined}
           />
@@ -342,7 +358,11 @@ function ProviderUsageBody({
       return (
         <div className="space-y-3.5">
           {usage.windows.map((window) => (
-            <UsageWindowRow key={window.label} window={window} />
+            <UsageWindowRow
+              key={window.label}
+              window={window}
+              providerId={config.providerId}
+            />
           ))}
         </div>
       );
