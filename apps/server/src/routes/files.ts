@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { probeAbsolutePathOnHost, resolveHostIdForAbsolutePath } from "../services/hosts/absolute-path-host.js";
 import type { Hono } from "hono";
 import {
   getRelativeHostPathSegments,
@@ -16,6 +15,10 @@ import { ApiError } from "../errors.js";
 import { browserRequestProblem } from "../browser-request-guard.js";
 import type { AppDeps } from "../types.js";
 import type { HostDaemonRpcCommand } from "@bb/host-daemon-contract";
+import {
+  probeAbsolutePathOnHost,
+  resolveHostIdForAbsolutePath,
+} from "../services/hosts/absolute-path-host.js";
 import {
   callHostOnlineRpcForWork,
   callHostRetryableOnlineRpc,

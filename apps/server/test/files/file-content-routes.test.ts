@@ -69,6 +69,103 @@ function serveFiles(
 
 describe("file content routes", () => {
   it.each([
+    {
+      label: "drive",
+      filePath: "C:\\Users\\me\\chart.png",
+      encoded: "C%3A/Users/me/chart.png",
+      rootPath: "C:\\",
+    },
+    {
+      label: "UNC",
+      filePath: "\\\\server\\share\\dir\\a b.png",
+      encoded: "%5C%5Cserver/share/dir/a%20b.png",
+      rootPath: "\\\\server\\share\\",
+    },
+  ])(
+    "routes a Windows $label URL from a Linux thread to Windows",
+    async ({ filePath, encoded, rootPath }) => {
+      await withTestHarness(async (harness) => {
+        const { thread } = seedThreadFixture(harness, {
+          session: { platform: "linux" },
+        });
+        const { host, session } = seedHostSession(harness.deps, {
+          platform: "win32",
+        });
+        const commands = serveFiles(harness, {
+          hostId: host.id,
+          sessionId: session.id,
+          files: new Map([
+            [
+              filePath,
+              { bytes: Buffer.from("windows"), mimeType: "image/png" },
+            ],
+          ]),
+        });
+        const response = await harness.app.request(
+          `/api/v1/threads/${thread.id}/host-files/${encoded}`,
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.text()).resolves.toBe("windows");
+        expect(commands[0]).toMatchObject({
+          type: "host.read_file_chunk",
+          path: filePath,
+          rootPath,
+        });
+      });
+    },
+  );
+
+  it.each(["/tmp/notes.txt", "/unc:server/share/notes.txt"])(
+    "routes POSIX %s from a Windows thread without interpreting a legacy prefix",
+    async (filePath) => {
+      await withTestHarness(async (harness) => {
+        const { thread } = seedThreadFixture(harness, {
+          session: { platform: "win32" },
+        });
+        const { host, session } = seedHostSession(harness.deps, {
+          platform: "linux",
+        });
+        const commands = serveFiles(harness, {
+          hostId: host.id,
+          sessionId: session.id,
+          files: new Map([
+            [filePath, { bytes: Buffer.from("posix"), mimeType: "text/plain" }],
+          ]),
+        });
+        const encoded = filePath
+          .slice(1)
+          .split("/")
+          .map(encodeURIComponent)
+          .join("/");
+        const response = await harness.app.request(
+          `/api/v1/threads/${thread.id}/host-files/${encoded}`,
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.text()).resolves.toBe("posix");
+        expect(commands[0]).toMatchObject({ path: filePath, rootPath: "/" });
+      });
+    },
+  );
+
+  it("reports an unavailable Windows host instead of reading a Windows path on Linux", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedThreadFixture(harness, {
+        session: { platform: "linux" },
+      });
+      const response = await harness.app.request(
+        `/api/v1/threads/${thread.id}/host-files/C%3A/Users/me/chart.png`,
+      );
+
+      expect(response.status).toBe(409);
+      await expect(readJson(response)).resolves.toMatchObject({
+        code: "host_unavailable",
+      });
+    });
+  });
+
+  it.each([
     ["svg", "image/svg+xml"],
     ["xhtml", "application/xhtml+xml"],
   ])("sends a sandbox policy for %s documents", async (extension, mimeType) => {
