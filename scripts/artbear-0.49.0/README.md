@@ -106,3 +106,24 @@ review gate. Its cron and stored script are not changed by this recipe.
 Codex maintenance source and its three-day gate are retained. No matching
 automation was found in the BB or Personal projects or user crontab during the
 11November check, so this build does not create or modify its schedule.
+
+## Isolated release checks
+
+Check the assembled usage bundle with fixture GET data through the same UI
+checker used after activation. The fixture has three credits and verifies the
+two earliest deadlines and the automatic weekly reset in Moscow time. It
+uses temporary data and a fixture CLI, so it never reads account credentials.
+
+```sh
+python3 scripts/artbear-0.49.0/run-heavy.py built-ui python3 scripts/artbear-0.49.0/check-built-ui.py /path/to/new-release
+```
+
+The runtime smoke requires bwrap with a separate network namespace and the
+working BB data directory masked. Bind only the sibling build log directory
+writable, keep the rest of the filesystem read-only, and mount fresh /tmp,
+/proc and /dev. Run smoke-release.py with the new release directory. It
+creates a pristine database through the real migrations, pre-disables
+unrelated plugins, and verifies health, CLI version, the two restored plugins
+and local daemon. It copies no production database, settings or credentials.
+The production account UI and all external plugin states remain activation
+checks for the infrastructure executor.
