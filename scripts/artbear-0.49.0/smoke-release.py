@@ -43,7 +43,9 @@ import { join } from "node:path";
 const db = createConnection(join(process.env.BB_DATA_DIR, "bb.db"));
 migrate(db);
 const base = process.argv[1];
-for (const name of readdirSync(base)) {
+for (const entry of readdirSync(base, { withFileTypes: true })) {
+  if (!entry.isDirectory()) continue;
+  const name = entry.name;
   const manifest = JSON.parse(readFileSync(join(base, name, "package.json"), "utf8"));
   const id = manifest.name.replace(/^bb-plugin-/, "");
   db.$client.prepare("insert into plugins(id, source, provenance, source_kind, source_builtin_name, root_dir, version, enabled, installed_at, updated_at) values(?, ?, 'builtin', 'builtin', ?, ?, ?, ?, 0, 0)")

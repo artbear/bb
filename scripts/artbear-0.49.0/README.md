@@ -78,8 +78,8 @@ complete, already installed `bb-app@0.49.0`, including its native dependencies.
 
 ```sh
 python3 scripts/artbear-0.49.0/run-heavy.py components pnpm exec turbo run build --filter=@bb/app --filter=@bb/server --filter=@bb/cli --filter=@bb/host-daemon --filter=@bb/plugin-build --concurrency=1 --env-mode=loose --output-logs=errors-only --summarize=false
-python3 scripts/artbear-0.49.0/run-heavy.py codex env BB_DATA_DIR=/tmp/artbear-0490-build-data bb plugin build plugins/provider-codex
-python3 scripts/artbear-0.49.0/run-heavy.py usage env BB_DATA_DIR=/tmp/artbear-0490-build-data bb plugin build plugins/provider-usage
+python3 scripts/artbear-0.49.0/run-heavy.py codex env -u BB_CLI BB_DATA_DIR=/tmp/artbear-0490-build-data bb plugin build plugins/provider-codex
+python3 scripts/artbear-0.49.0/run-heavy.py usage env -u BB_CLI BB_DATA_DIR=/tmp/artbear-0490-build-data bb plugin build plugins/provider-usage
 python3 scripts/artbear-0.49.0/run-heavy.py assemble node scripts/artbear-0.49.0/assemble-release.mjs /path/to/official-install /path/to/new-release
 ```
 
@@ -127,3 +127,9 @@ unrelated plugins, and verifies health, CLI version, the two restored plugins
 and local daemon. It copies no production database, settings or credentials.
 The production account UI and all external plugin states remain activation
 checks for the infrastructure executor.
+
+The original isolated-runtime invocation was:
+
+```sh
+python3 scripts/artbear-0.49.0/run-heavy.py isolated-runtime bwrap --unshare-net --die-with-parent --ro-bind / / --bind /home/hermes/bb/integration-0.49.0/restoration-20261111 /home/hermes/bb/integration-0.49.0/restoration-20261111 --tmpfs /home/hermes/.bb --tmpfs /tmp --proc /proc --dev /dev --chdir /home/hermes/bb/integration-0.49.0/runtime -- python3 scripts/artbear-0.49.0/smoke-release.py /home/hermes/bb/releases/artbear-bb-0.49.0-restored-20261111
+```
