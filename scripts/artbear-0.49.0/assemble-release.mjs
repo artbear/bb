@@ -68,6 +68,7 @@ execFileSync(
     "build",
     "--filter=bb-app",
     "--only",
+    "--force",
     "--concurrency=1",
     "--env-mode=loose",
     "--output-logs=errors-only",
