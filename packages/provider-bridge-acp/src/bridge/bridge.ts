@@ -173,6 +173,10 @@ import {
   runAcpDynamicToolMcpServer,
   type AcpMcpServerConfig,
 } from "./tool-proxy-mcp.js";
+import {
+  promptUsageFromResult,
+  type PromptUsageSnapshot,
+} from "./prompt-usage.js";
 
 interface AcpSessionPolicy {
   permissionMode: "accept-edits" | "full";
@@ -226,6 +230,9 @@ interface AcpThreadSession {
   loadingSessionId: string | undefined;
   pendingLoadUsageUpdate: AcpUsageUpdate | undefined;
   grokContextWindowSize: number | undefined;
+  promptUsage: PromptUsageSnapshot | undefined;
+  promptUsageResumed: boolean;
+  promptContextWindowSize: number | null;
   stopping: boolean;
   turnSettled: Promise<void> | undefined;
   pendingPermissions: Set<PendingAcpPermission>;
@@ -395,6 +402,26 @@ function emitGrokContextWindow(session: AcpThreadSession, used: number): void {
       ...(cost === undefined ? {} : { cost }),
     },
   ]);
+}
+
+function emitPromptUsage(session: AcpThreadSession, result: unknown): void {
+  const usage = promptUsageFromResult(
+    result,
+    session.construction.agent.command,
+    session.promptUsage,
+    session.promptContextWindowSize,
+    session.promptUsageResumed,
+  );
+  if (usage.status === "event") {
+    session.promptUsage = usage.snapshot;
+    sendThreadDeltas(session.bbThreadId, [usage.event]);
+  } else if (usage.status === "baseline") {
+    session.promptUsage = usage.snapshot;
+  }
+  const grokUsage = grokContextUsageFromPromptResult(result);
+  if (grokUsage !== undefined) {
+    emitGrokContextWindow(session, grokUsage.used);
+  }
 }
 
 function emitForSession(
@@ -2382,6 +2409,9 @@ async function startAgentSession(
     loadingSessionId: undefined,
     pendingLoadUsageUpdate: undefined,
     grokContextWindowSize: undefined,
+    promptUsage: undefined,
+    promptUsageResumed: false,
+    promptContextWindowSize: null,
     stopping: false,
     turnSettled: undefined,
     pendingPermissions: new Set(),
@@ -2561,6 +2591,9 @@ async function startAgentSession(
         `ACP session for thread "${bbThreadId}" was released during construction`,
       );
     }
+    session.promptUsageResumed =
+      !createdFreshSession &&
+      (request.kind === "resume" || request.kind === "fork");
     session.providerThreadId = sessionId;
     bbThreadIdByProviderThreadId.set(sessionId, bbThreadId);
     sendNotification(BRIDGE_NOTIFICATION_METHODS.threadIdentity, {
@@ -2906,6 +2939,10 @@ function emitSessionUpdate(
   ) {
     return;
   }
+  const usageUpdate = acpUsageUpdateSchema.safeParse(update);
+  if (usageUpdate.success) {
+    session.promptContextWindowSize = usageUpdate.data.size;
+  }
   const events = session.model.applySessionUpdate(rawUpdate);
   publishSessionStateEvents(session, events);
   session.agentUpdateCount += 1;
@@ -3111,10 +3148,7 @@ function runTurn(
           try {
             const result = await promptResult;
             stopReason = result.stopReason;
-            const grokUsage = grokContextUsageFromPromptResult(result);
-            if (grokUsage !== undefined) {
-              emitGrokContextWindow(session, grokUsage.used);
-            }
+            emitPromptUsage(session, result);
             break;
           } catch (error) {
             if (
@@ -3384,10 +3418,7 @@ function startCompaction(
 
   session.turnSettled = promptResult
     .then((result) => {
-      const grokUsage = grokContextUsageFromPromptResult(result);
-      if (grokUsage !== undefined) {
-        emitGrokContextWindow(session, grokUsage.used);
-      }
+      emitPromptUsage(session, result);
       finish(
         result.stopReason === "end_turn"
           ? compactionOutcomeForEndTurn(

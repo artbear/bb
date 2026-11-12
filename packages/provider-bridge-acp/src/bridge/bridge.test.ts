@@ -3674,6 +3674,180 @@ describe("acp bridge", () => {
     expect(agentMessageTexts()).not.toContain("echo:/compact");
   });
 
+  it.each([
+    { name: "unknown", updates: [], size: null },
+    {
+      name: "latest accepted",
+      updates: [
+        { sessionUpdate: "usage_update", used: 100, size: 1000 },
+        { sessionUpdate: "usage_update", used: 200, size: 2000 },
+        { sessionUpdate: "usage_update", used: 300, size: -1 },
+        { sessionUpdate: "usage_update", used: 300, size: 0.5 },
+      ],
+      size: 2000,
+    },
+  ])(
+    "emits cumulative Hermes prompt usage for a normal turn and compaction with $name context",
+    async ({ updates, size }) => {
+      chmodSync(FAKE_AGENT_PATH, 0o755);
+      const hermes = join(workspaceDir, "hermes");
+      symlinkSync(FAKE_AGENT_PATH, hermes);
+      const { providerThreadId } = await startThread({
+        agent: { command: hermes, args: [] },
+        envVars: {
+          FAKE_ACP_PROMPT_USAGE_UPDATES: JSON.stringify(updates),
+          FAKE_ACP_PROMPT_USAGE: JSON.stringify({
+            input_tokens: 100,
+            output_tokens: 20,
+            cached_read_tokens: 40,
+          }),
+        },
+      });
+      await completeTurnWith(providerThreadId, "hello", executionOptions({}));
+      const snapshot = {
+        inputTokens: 100,
+        outputTokens: 20,
+        totalTokens: 120,
+        cachedInputTokens: 40,
+        cacheReadInputTokens: 40,
+        reasoningOutputTokens: 0,
+      };
+      const events = threadEventsOfType("thread/tokenUsage/updated");
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        tokenUsage: {
+          last: snapshot,
+          total: snapshot,
+          modelContextWindow: size,
+        },
+      });
+      expect(events[0]?.tokenUsage).not.toHaveProperty(
+        "total.cacheWriteInputTokens",
+      );
+      const completedBefore = threadEventsOfType("turn/completed").length;
+      const id = sendTurnRequest("turn/start", providerThreadId, {
+        input: compactCommandInput(),
+      });
+      expect((await waitForResponse(id)).error).toBeUndefined();
+      await waitFor(
+        () =>
+          threadEventsOfType("turn/completed").length > completedBefore
+            ? true
+            : undefined,
+        "compaction completion",
+      );
+      const after = threadEventsOfType("thread/tokenUsage/updated");
+      expect(after).toHaveLength(2);
+      expect(after[1]).toMatchObject({
+        tokenUsage: {
+          last: {
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            cachedInputTokens: 0,
+            cacheReadInputTokens: 0,
+            reasoningOutputTokens: 0,
+          },
+          total: snapshot,
+          modelContextWindow: size,
+        },
+      });
+      expect(threadEventsOfType("thread/compacted")).toHaveLength(1);
+    },
+  );
+
+  it("does not emit prompt usage for a command outside the allowlist", async () => {
+    const { providerThreadId } = await startThread({
+      envVars: {
+        FAKE_ACP_PROMPT_USAGE: JSON.stringify({
+          input_tokens: 100,
+          output_tokens: 20,
+        }),
+      },
+    });
+    await completeTurnWith(providerThreadId, "hello", executionOptions({}));
+    expect(threadEventsOfType("thread/tokenUsage/updated")).toHaveLength(0);
+  });
+
+  it("keeps prompt usage memory inside one bridge session", async () => {
+    chmodSync(FAKE_AGENT_PATH, 0o755);
+    const hermes = join(workspaceDir, "hermes");
+    symlinkSync(FAKE_AGENT_PATH, hermes);
+    const envVars = {
+      FAKE_ACP_PROMPT_USAGE: JSON.stringify({
+        input_tokens: 100,
+        output_tokens: 20,
+      }),
+    };
+    const left = await startThread({
+      agent: { command: hermes, args: [] },
+      envVars,
+    });
+    const right = await startThread({
+      agent: { command: hermes, args: [] },
+      envVars,
+    });
+    await completeTurnWith(left.providerThreadId, "left", executionOptions({}));
+    await completeTurnWith(right.providerThreadId, "right", executionOptions({}));
+    const events = threadEventsOfType("thread/tokenUsage/updated");
+    expect(events).toHaveLength(2);
+    for (const event of events) {
+      expect(event).toMatchObject({
+        tokenUsage: {
+          last: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+          total: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+        },
+      });
+    }
+  });
+
+  it("does not charge a resumed session's history to the first prompt", async () => {
+    chmodSync(FAKE_AGENT_PATH, 0o755);
+    const hermes = join(workspaceDir, "hermes");
+    symlinkSync(FAKE_AGENT_PATH, hermes);
+    const envVars = {
+      FAKE_ACP_LOAD_SESSION: "1",
+      FAKE_ACP_PROMPT_USAGE: JSON.stringify({
+        input_tokens: 100,
+        output_tokens: 20,
+        cached_read_tokens: 40,
+      }),
+    };
+    const first = await startThread({
+      agent: { command: hermes, args: [] },
+      envVars,
+    });
+    await completeTurnWith(first.providerThreadId, "hello", executionOptions({}));
+    expect(threadEventsOfType("thread/tokenUsage/updated")).toHaveLength(1);
+    await stopThread(first.providerThreadId);
+    const resumeId = sendRequest("thread/resume", {
+      threadId: first.bbThreadId,
+      cwd: workspaceDir,
+      instructionMode: "append",
+      options: executionOptions({
+        providerOptions: {
+          acpLaunchSpec: acpLaunchSpec({
+            agent: { command: hermes, args: [] },
+            envVars,
+          }),
+        },
+      }),
+      providerThreadId: first.providerThreadId,
+    });
+    expect((await waitForResponse(resumeId)).error).toBeUndefined();
+    await completeTurnWith(first.providerThreadId, "again", executionOptions({}));
+    expect(threadEventsOfType("thread/tokenUsage/updated")).toHaveLength(1);
+    await completeTurnWith(first.providerThreadId, "third", executionOptions({}));
+    const events = threadEventsOfType("thread/tokenUsage/updated");
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({
+      tokenUsage: {
+        last: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        total: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+      },
+    });
+  });
+
   it("fails the compaction turn legibly when the agent rejects the request", async () => {
     const { providerThreadId } = await startThread({
       envVars: { FAKE_ACP_PROMPT_ERROR: "1" },
