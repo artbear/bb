@@ -136,7 +136,48 @@ describe("PromptResponse usage", () => {
     });
   });
 
-  it.each(["cursor-agent", "/opt/bin/copilot.exe", "acp", "/opt/hermes/node"])(
+  it.each([
+    "cursor-agent",
+    "/opt/bin/cursor-agent",
+    "/opt/bin/cursor-agent.exe",
+    "C:\\agents\\cursor-agent.exe",
+  ])("recognizes cursor-agent basename %s as cumulative", (command) => {
+    expect(event(parse(second, command, firstSnapshot))?.last.inputTokens).toBe(60);
+    expect(event(parse(second, command, firstSnapshot))?.total).toEqual(secondSnapshot);
+  });
+
+  it("drops a regressed cursor-agent total and ignores print field names", () => {
+    const reasons: string[] = [];
+    expect(
+      parse(
+        { ...first, output_tokens: 1, total_tokens: 101 },
+        "cursor-agent",
+        firstSnapshot,
+        false,
+        (entry) => reasons.push(entry.reason),
+      ).status,
+    ).toBe("ignore");
+    expect(reasons).toEqual(["cumulative-regression"]);
+    const printed = parse(
+      {
+        inputTokens: 100,
+        outputTokens: 20,
+        cacheReadTokens: 80,
+        cacheWriteTokens: 5,
+        reasoningTokens: 3,
+      },
+      "cursor-agent",
+    );
+    expect(printed.status === "event" ? printed.snapshot : undefined).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      totalTokens: 120,
+      cachedInputTokens: 0,
+      reasoningOutputTokens: 0,
+    });
+  });
+
+  it.each(["/opt/bin/copilot.exe", "acp", "/opt/hermes/node"])(
     "emits nothing for a command outside the allowlist %s",
     (command) => {
       const reasons: string[] = [];

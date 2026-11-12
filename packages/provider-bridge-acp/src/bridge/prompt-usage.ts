@@ -24,7 +24,7 @@ type Count =
   | { state: "value"; value: number }
   | { state: "invalid" };
 
-const CUMULATIVE_COMMANDS = new Set(["hermes"]);
+const CUMULATIVE_COMMANDS = new Set(["hermes", "cursor-agent"]);
 
 function defaultLog(entry: { reason: string; command: string }): void {
   const level = (process.env.BB_LOG_LEVEL ?? "debug").toLowerCase();
