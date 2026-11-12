@@ -863,6 +863,9 @@ async function handlePrompt(message) {
 
   if (activePromptId === message.id) {
     activePromptId = null;
+    for (const update of JSON.parse(process.env.FAKE_ACP_PROMPT_USAGE_UPDATES ?? "[]")) {
+      notifyUpdate(update);
+    }
     const scriptedStopReason = /stop-reason:([a-z_]+)/.exec(text)?.[1];
     const stopReason =
       text === "/compact"
@@ -873,6 +876,9 @@ async function handlePrompt(message) {
       id: message.id,
       result: {
         stopReason,
+        ...(process.env.FAKE_ACP_PROMPT_USAGE
+          ? { usage: JSON.parse(process.env.FAKE_ACP_PROMPT_USAGE) }
+          : {}),
         ...(grokContext
           ? { _meta: { usage: { inputTokens: 17_504, totalTokens: 17_531 } } }
           : {}),
