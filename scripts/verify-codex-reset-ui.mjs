@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -11,7 +11,7 @@ const require = createRequire(
   join(root, "plugins/provider-usage/package.json"),
 );
 const requireUi = createRequire(join(root, "packages/shared-ui/package.json"));
-const dataDir = process.env.BB_DATA_DIR ?? join(homedir(), ".bb");
+const dataDir = process.env.BB_DATA_DIR ?? "/data";
 const runtime = JSON.parse(
   readFileSync(join(dataDir, "bb-app-runtime.json"), "utf8"),
 );

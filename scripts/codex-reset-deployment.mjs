@@ -9,11 +9,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const dataDir = process.env.BB_DATA_DIR ?? join(homedir(), ".bb");
+const dataDir = process.env.BB_DATA_DIR ?? "/data";
 const statePath = join(dataDir, "codex-reset-deployment.json");
 const runtime = JSON.parse(
   readFileSync(join(dataDir, "bb-app-runtime.json"), "utf8"),
@@ -58,12 +57,6 @@ const bb = (args) =>
     maxBuffer: 16 * 1024 * 1024,
     timeout: 120_000,
   });
-const verifyUi = () =>
-  execFileSync(
-    process.execPath,
-    [join(root, "scripts/verify-codex-reset-ui.mjs")],
-    { stdio: "inherit", timeout: 90_000 },
-  );
 
 if (process.argv[2] === "--deploy") {
   const sourceVersion = JSON.parse(
@@ -76,7 +69,9 @@ if (process.argv[2] === "--deploy") {
   const payloads = files.map(([plugin, name]) => ({
     plugin,
     name,
-    content: readFileSync(join(root, "plugins", plugin, "dist", name)),
+    content: readFileSync(
+      join(root, "plugins", plugin, ".bundled-runtime", "dist", name),
+    ),
   }));
   const backup = join(
     dataDir,
@@ -97,7 +92,6 @@ if (process.argv[2] === "--deploy") {
     }
     for (const plugin of ["provider-codex", "bb--provider-usage"])
       bb(["plugin", "reload", plugin, "--json"]);
-    verifyUi();
     writeFileSync(
       statePath,
       JSON.stringify(
@@ -146,4 +140,8 @@ for (const [path, hash] of Object.entries(state.sources))
 for (const [path, hash] of Object.entries(state.artifacts))
   if (sha(join(installed, path)) !== hash)
     throw new Error(`Installed patch changed or is missing: ${path}`);
-if (process.argv[2] === "--check") verifyUi();
+execFileSync(
+  process.execPath,
+  [join(root, "scripts/verify-codex-reset-ui.mjs")],
+  { stdio: "inherit", timeout: 90_000 },
+);

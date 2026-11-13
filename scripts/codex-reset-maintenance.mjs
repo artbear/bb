@@ -1,7 +1,5 @@
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { homedir } from "node:os";
-import { join } from "node:path";
 
 export function isMaintenanceDay(today, anchor) {
   const days =
@@ -24,16 +22,15 @@ if (
   const anchor = process.env.BB_CODEX_RESET_ANCHOR;
   const target = process.env.BB_CODEX_RESET_THREAD;
   const checkout = process.env.BB_CODEX_RESET_REPO;
-  const dataDir = process.env.BB_DATA_DIR ?? join(homedir(), ".bb");
   if (!anchor || !target || !checkout)
     throw new Error(
       "Maintenance anchor, checkout and target thread are required",
     );
   if (isMaintenanceDay(today, anchor)) {
-    const prompt = `Плановая проверка Codex reset credits. Пользователь разрешил проверку и восстановление каждые три дня в 00:40 МСК, правку исходников BB на сервере, commit и push в публичный форк https://github.com/artbear/bb, ветка restore/artbear-0.49.0-20261111.
-Работай в ${checkout}. Если checkout отсутствует, восстанови его из публичного форка, ветка restore/artbear-0.49.0-20261111. Прочитай docs/codex-reset-expirations.md и выполни node scripts/codex-reset-deployment.mjs --check с BB_DATA_DIR=${dataDir}.
-Проверь наличие исходников до запуска checker, резервную запись ${dataDir}/codex-reset-deployment.json, текущую версию и путь BB в ${dataDir}/bb-app-runtime.json. Проверяй фактическую установленную сборку плагина через UI checker: недельный лимит и два ближайших срока действия доступных дополнительных сбросов с датами по Москве. Если всё на месте и UI проверен, сообщи коротко об успехе.
-Если нужных исходников, кода в установленной сборке или отображения нет, восстанови реализацию. Сначала проверь git status, сохрани чужие изменения. Для новой версии BB получи gitHead именно установленного релиза, перенеси нашу небольшую правку на актуальные исходники и обнови публичный форк; не подменяй новый провайдер старой сборкой. Запусти относящиеся к изменению тесты и typecheck через Turbo, собери оба плагина штатным bb plugin build, примени node scripts/codex-reset-deployment.mjs --deploy и повтори --check с тем же BB_DATA_DIR. Внеси необходимые изменения в git, commit и push в https://github.com/artbear/bb.git ветку restore/artbear-0.49.0-20261111. Авторизация gh настроена на сервере. Не коммить учётные данные, auth.json, состояние аккаунта, резервные копии и артефакты сборки. Никогда не применяй и не покупай сброс квоты, нужны только GET-запросы. Если проблема только в сети или авторизации, не считай это исчезновением кода: сообщи реальную причину, не фабрикуй даты и не ухудшай работу лимитов.`;
+    const prompt = `Плановая проверка Codex reset credits. Пользователь разрешил проверку и восстановление каждые три дня в 00:40 МСК, правку исходников BB на сервере, commit и push в публичный форк https://github.com/artbear/bb, ветка artur-bb.
+Работай в ${checkout}. Если checkout отсутствует, восстанови его из публичного форка, ветка artur-bb. Прочитай docs/codex-reset-expirations.md и выполни node scripts/codex-reset-deployment.mjs --check.
+Проверь наличие исходников до запуска checker, резервную запись /data/codex-reset-deployment.json, текущую версию и путь BB в /data/bb-app-runtime.json. Проверяй фактическую установленную сборку плагина через UI checker: недельный лимит и два ближайших срока действия доступных дополнительных сбросов с датами по Москве. Если всё на месте и UI проверен, сообщи коротко об успехе.
+Если нужных исходников, кода в установленной сборке или отображения нет, восстанови реализацию. Сначала проверь git status, сохрани чужие изменения. Для новой версии BB получи gitHead именно установленного релиза, перенеси нашу небольшую правку на актуальные исходники и обнови публичный форк; не подменяй новый провайдер старой сборкой. Запусти относящиеся к изменению тесты и typecheck через Turbo, собери оба плагина из текущих исходников командой pnpm exec turbo run prepare:bundled --filter=bb-plugin-provider-codex --filter=bb-plugin-bb--provider-usage, примени node scripts/codex-reset-deployment.mjs --deploy и повтори --check. Внеси необходимые изменения в git, commit и push в origin artur-bb. Авторизация gh настроена на сервере. Не коммить учётные данные, auth.json, состояние аккаунта, резервные копии и артефакты сборки. Никогда не применяй и не покупай сброс квоты, нужны только GET-запросы. Если проблема только в сети или авторизации, не считай это исчезновением кода: сообщи реальную причину, не фабрикуй даты и не ухудшай работу лимитов.`;
     const result = spawnSync(
       process.env.BB_CLI ?? "bb",
       ["thread", "tell", target, "--mode", "queue", "--message-file", "-"],

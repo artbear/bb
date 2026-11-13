@@ -1,10 +1,10 @@
 # Сроки действия дополнительных сбросов Codex
 
-Форк: https://github.com/artbear/bb, ветка `restore/artbear-0.49.0-20261111`.
-Исходная версия сервера: BB 0.49.0, commit
+Подготовленный перенос: ветка `artur-bb`.
+База исходников: BB 0.49.0, commit
 `7b26cae79ec978fafd0a5db0e8517e94f12eb8f4` из npm `bb-app@0.49.0`.
-Воспроизводимый рецепт ограниченной сборки находится в
-`scripts/artbear-0.49.0/README.md`.
+Развёртывание допускается только после установки этой версии BB. Подготовка
+исходников и проверка сборки не меняют работающий сервер.
 
 Провайдер читает `GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits`
 на машине выбранного аккаунта. Поле `expires_at` задаёт срок использования
@@ -22,42 +22,39 @@ daemon. Необязательное поле `resetCredits` в measurement со
 
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts --filter bb --filter 'bb-plugin-provider-codex...' --filter 'bb-plugin-bb--provider-usage...' --filter @bb/app --filter '@bb/db...' --filter @bb/plugin-registry
-pnpm exec turbo run build --filter=@get-bb/plugin-sdk
+pnpm exec turbo run build --filter=@get-bb/plugin-sdk --filter=@bb/plugin-build
 pnpm exec turbo run test typecheck lint --filter=bb-plugin-provider-codex --filter=bb-plugin-bb--provider-usage
 node --test scripts/codex-reset-maintenance.test.mjs
-bb plugin build plugins/provider-codex
-bb plugin build plugins/provider-usage
+pnpm exec turbo run prepare:bundled --filter=bb-plugin-provider-codex --filter=bb-plugin-bb--provider-usage
 node scripts/codex-reset-deployment.mjs --deploy
 node scripts/codex-reset-deployment.mjs --check
 ```
 
-Deploy проверяет совпадение версии исходников и установленного BB, сохраняет
+Сборка выполняется инструментами из исходников 0.49.0; подготовленные runtime
+лежат в ".bundled-runtime" каждого плагина. Deploy проверяет совпадение версии
+исходников и установленного BB, сохраняет
 резервные копии заменяемых файлов, обновляет только артефакты двух плагинов и
 перезагружает эти плагины. Перезапуск сервера и остановка тредов не нужны.
-Состояние и контрольные суммы лежат в `~/.bb/codex-reset-deployment.json`;
-резервные копии — в `~/.bb/codex-reset-backups/`. `BB_DATA_DIR` задаёт другой
-каталог данных. Они не попадают в git. Запись успешного деплоймента создаётся
-только после UI-проверки; при её сбое артефакты возвращаются из копии.
+Состояние и контрольные суммы лежат в `/data/codex-reset-deployment.json`;
+резервные копии — в `/data/codex-reset-backups/`. Они не попадают в git.
 Checker сверяет исходники и установленный код, получает настоящие данные через
 RPC и рендерит установленный app bundle с ними через SDK harness в jsdom.
 Проверяется наличие дат двух ближайших доступных сбросов и основной квоты.
 Если доступных сбросов меньше двух, показывается фактическое количество.
 
-Исходный рецепт автоматизации запускает скрипт ежедневно в 00:40 `Europe/Moscow`.
+Плановая автоматизация запускает скрипт ежедневно в 00:40 `Europe/Moscow`.
 Скрипт пропускает дни, не попадающие в точный интервал три дня от даты
 `BB_CODEX_RESET_ANCHOR`. В дни проверки он ставит задачу обслуживающему треду
 `BB_CODEX_RESET_THREAD`. Эти параметры заданы в приватной конфигурации
 автоматизации, а не в публичном репозитории. `BB_CODEX_RESET_REPO` указывает
 checkout; скрипт запускается из стабильного каталога проекта, чтобы восстановить
 даже полностью удалённый checkout. Первое плановое выполнение —
-29 октября 2026 года, далее 1, 4, 7 ноября и так далее. При проверке 11 ноября
-такая автоматизация не найдена в проектах BB/Personal и пользовательском
-crontab; расписание в рамках восстановления исходников не создавалось.
+29 октября 2026 года, далее 1, 4, 7 ноября и так далее.
 
 При обновлении BB сначала нужно получить `gitHead` установленного npm-релиза,
 адаптировать изменение в форке и проверить его на свежих исходниках. Нельзя
 восстанавливать старый host bundle поверх новой версии провайдера. После
-адаптации — сборка, deploy, UI check, commit и push в текущую ветку форка.
+адаптации — сборка, deploy, UI check, commit и push в `artur-bb`.
 Сбой сети или авторизации сам по себе не означает потерю правки.
 
 Семантика сроков описана в [справке OpenAI](https://help.openai.com/en/articles/20001498-how-resets-work-in-codex).

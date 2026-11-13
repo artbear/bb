@@ -68,7 +68,10 @@ function fixture() {
   ])
     put(join(source, path), "export {};\n");
   for (const [plugin, name] of artifacts) {
-    put(join(source, "plugins", plugin, "dist", name), `new:${plugin}/${name}`);
+    put(
+      join(source, "plugins", plugin, ".bundled-runtime", "dist", name),
+      `new:${plugin}/${name}`,
+    );
     put(join(installed, plugin, "dist", name), `old:${plugin}/${name}`);
   }
   const checker = join(source, "scripts/verify-codex-reset-ui.mjs");
@@ -99,7 +102,7 @@ if (process.env.BB_TEST_UI_FAILURE === "1") throw new Error("UI validation faile
   return { root, data, installed, run };
 }
 
-test("failed UI verification restores installed files and leaves the deployment record absent", () => {
+test("UI failure after deploy keeps the new artifacts and the deployment record", () => {
   const f = fixture();
   try {
     assert.throws(
@@ -108,12 +111,12 @@ test("failed UI verification restores installed files and leaves the deployment 
     );
     assert.equal(
       existsSync(join(f.data, "codex-reset-deployment.json")),
-      false,
+      true,
     );
     for (const [plugin, name] of artifacts) {
       assert.equal(
         readFileSync(join(f.installed, plugin, "dist", name), "utf8"),
-        `old:${plugin}/${name}`,
+        `new:${plugin}/${name}`,
       );
     }
   } finally {
@@ -121,14 +124,14 @@ test("failed UI verification restores installed files and leaves the deployment 
   }
 });
 
-test("a successful deployment records hashes only after the installed UI passes", () => {
+test("a successful deployment records hashes before the installed UI runs", () => {
   const f = fixture();
   try {
     f.run("--deploy");
     const observation = JSON.parse(
       readFileSync(join(f.data, "ui-observation.json"), "utf8"),
     );
-    assert.equal(observation.recordExists, false);
+    assert.equal(observation.recordExists, true);
     const state = JSON.parse(
       readFileSync(join(f.data, "codex-reset-deployment.json"), "utf8"),
     );
