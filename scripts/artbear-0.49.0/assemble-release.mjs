@@ -46,7 +46,7 @@ if (git("status", "--porcelain", "--untracked-files=normal")) {
 const commit = git("rev-parse", "HEAD");
 const directories = ["dist", "app", "server", "host-daemon"];
 const builtinStage = join(root, "packages/bundled-plugins/dist");
-for (const name of ["provider-codex", "provider-usage", "provider-acp"]) {
+for (const name of ["provider-codex", "provider-usage", "provider-acp", "automations"]) {
   await access(join(root, "plugins", name, "dist/server.js"));
 }
 await rm(builtinStage, { recursive: true, force: true });
@@ -54,7 +54,7 @@ await cp(join(basePackage, "server/dist/builtin-plugins"), builtinStage, {
   recursive: true,
   verbatimSymlinks: true,
 });
-for (const name of ["provider-codex", "provider-usage", "provider-acp"]) {
+for (const name of ["provider-codex", "provider-usage", "provider-acp", "automations"]) {
   const target = join(builtinStage, name, "dist");
   await rm(target, { recursive: true, force: true });
   await cp(join(root, "plugins", name, "dist"), target, { recursive: true });
@@ -111,7 +111,7 @@ const manifest = {
     await readFile(join(root, "packages/plugin-sdk/package.json"), "utf8"),
   ).version,
   assembly:
-    "Official npm runtime dependencies with source-built app, server, CLI, host daemon, launcher and rebuilt provider-codex, provider-usage and provider-acp; other builtin payloads retained from the same official release.",
+    "Official npm runtime dependencies with source-built app, server, CLI, host daemon, launcher and rebuilt provider-codex, provider-usage, provider-acp and automations; other builtin payloads retained from the same official release.",
   packageLockSha256: createHash("sha256")
     .update(await readFile(join(base, "package-lock.json")))
     .digest("hex"),
