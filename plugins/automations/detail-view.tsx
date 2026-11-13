@@ -843,8 +843,6 @@ export function AutomationDetailView({
       overflowMenu={
         <AutomationActionsMenu
           name={automation.name}
-          projectId={automation.projectId}
-          automationId={automation.id}
           pending={actionPending}
           runDisabledReason={
             requiresPrompt

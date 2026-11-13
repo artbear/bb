@@ -75,12 +75,12 @@ def main():
         os.environ.get("BB_CLI") or "bb", "thread", "spawn",
         "--project", os.environ["BB_PROJECT_ID"],
         "--environment", "env_7c4r86thzd",
-        "--provider", "acp-cursor", "--model", "claude-opus-5",
-        "--reasoning-level", "medium", "--permission-mode", "accept-edits",
+        "--provider", "acp-cursor", "--model", "default",
+        "--reasoning-level", "medium", "--permission-mode", "full",
         "--title", f"Обзор обновлений Hermes — {today}",
         "--prompt-file", "-", "--json",
     ]
-    thread = spawn_review(command, PROMPT)
+    thread = spawn_review(command, PROMPT, timeout=90)
     thread_id = thread["id"]
     marker.write_text(today + "\n")
     print(f"Обзор Hermes запущен: @thread:{thread_id}")

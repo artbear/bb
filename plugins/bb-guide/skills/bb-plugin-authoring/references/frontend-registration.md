@@ -211,7 +211,10 @@ below it. Props carry `threadId`, `projectId`, `environment` (null without a
 usable environment), the visible `segments`
 as `{ key, pluginId }` in row order (`key` is `<pluginId>/<id>`; bb's own use
 `bb--core`), and `isExpanded`/`onToggle` (one segment is expanded at a time).
-`useVisible(input)` false leaves it out.
+`useVisible(input)` false leaves it out. A segment whose content is also a
+thread context card row or section hides itself while
+`experimental_useThreadContextKind()` is `card`; see
+frontend-thread-context-card.md.
 
 ### An action in every thread menu
 
@@ -384,7 +387,8 @@ await sdk.threads.update({ id: thread.id, sectionId });
 
 // threads: PluginSidebarThread[] — id, projectId, href (put it on the row's
 // anchor; the host routes clicks in place), title, titleFallback,
-// displayTitle, parentThreadId, lifecycleOwnerThreadId, sourceThreadId, sectionId,
+// displayTitle, parentThreadId, parentNotifications ("auto" | "stuck" | "off"),
+// lifecycleOwnerThreadId, sourceThreadId, sectionId,
 // originKind, originPluginId, providerId, status (execution status; busy
 // threads sort first in bb's list), runtimeStatus (status refined by host
 // readiness), queuedWork ("none" | "waiting" | "failed"), hasPendingInteraction,
@@ -475,11 +479,11 @@ For multi-row selections (`experimental_bulkItem`), see frontend-sidebar-navigat
 `experimental_useArchiveEnvironmentThreads()` archives a whole environment
 group with bb's pane cleanup and Undo toast.
 
-**bb's status glyph on your row.** Render `experimental_ThreadStatusGlyph`
-with the row's `indicator` (start from the thread's own, then fold in what
-your row knows, such as collapsed children or `useSidebarThreadDraft`) and
-`useSidebarThreadRowStatus(threadId)` as `rowStatus`; bb draws the same icon,
-color, and accessible label its own lists use.
+**bb's status glyph on your row.** Pass the row's thread, its hidden children,
+its draft, and `useSidebarThreadRowStatus(threadId)` to
+`experimental_resolveThreadStatus` (bb's lists use the same function), then
+render `experimental_ThreadStatusGlyph` with the result's `indicator` and
+`rowStatus`; `label` and `isWorking` cover anything else you draw.
 
 **Keyboard support is a DOM contract.** bb's thread shortcuts find rows by
 query selector, not by React state. Put both attributes on each row's anchor or

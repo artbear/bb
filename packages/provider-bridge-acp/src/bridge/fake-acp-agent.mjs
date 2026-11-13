@@ -111,7 +111,7 @@
 
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, renameSync, writeFileSync } from "node:fs";
 
 const failLoad = process.env.FAKE_ACP_FAIL_LOAD === "1";
 const loadSession = process.env.FAKE_ACP_LOAD_SESSION === "1" || failLoad;
@@ -140,6 +140,7 @@ const setConfigModelErrorValue =
   process.env.FAKE_ACP_SET_CONFIG_MODEL_ERROR_VALUE;
 const setConfigFastError = process.env.FAKE_ACP_SET_CONFIG_FAST_ERROR === "1";
 const emptyModelResult = process.env.FAKE_ACP_EMPTY_MODEL_RESULT === "1";
+const modelConfigReply = process.env.FAKE_ACP_MODEL_CONFIG_REPLY;
 const cursorParameterizedModels =
   process.env.FAKE_ACP_CURSOR_PARAMETERIZED_MODELS === "1";
 const requestLog = process.env.FAKE_ACP_REQUEST_LOG;
@@ -197,7 +198,7 @@ const fakeModels = [
 let activePromptId = null;
 let stuckAfterCancel = false;
 let nextAgentRequestId = 1000;
-let selectedModel = "fake/default";
+let selectedModel = process.env.FAKE_ACP_INITIAL_MODEL ?? "fake/default";
 let selectedEffort = "none";
 let selectedFast = process.env.FAKE_ACP_INITIAL_FAST ?? "false";
 let clientSupportsParameterizedModels = false;
@@ -241,7 +242,9 @@ if (process.env.FAKE_ACP_LINGERING_DESCENDANT_PID_FILE) {
 }
 
 if (process.env.FAKE_ACP_READY_FILE) {
-  writeFileSync(process.env.FAKE_ACP_READY_FILE, String(process.pid));
+  const readyFile = process.env.FAKE_ACP_READY_FILE;
+  writeFileSync(readyFile + ".tmp", String(process.pid));
+  renameSync(readyFile + ".tmp", readyFile);
 }
 
 if (process.env.FAKE_ACP_LAUNCH_LOG) {
@@ -737,23 +740,40 @@ async function handlePrompt(message) {
     });
     notifyUpdate(messageChunk("commands advertised"));
   } else if (text.includes("ask-form")) {
-    const properties = text.includes("ask-form-too-large")
-      ? Object.fromEntries(
-          ["a", "b", "c", "d", "e"].map((name) => [name, { type: "string" }]),
-        )
-      : {
-          strategy: {
+    const droid = text.includes("ask-form-other-droid");
+    const properties = text.includes("ask-form-other")
+      ? {
+          choice: {
             type: "string",
-            title: "Strategy",
-            enum: ["conservative", "balanced"],
+            enum: droid ? ["a", "b", "other"] : ["a", "b"],
           },
-          dryRun: { type: "boolean", title: "Dry run" },
-        };
+          [droid ? "choice_other" : "choice__other"]: { type: "string" },
+        }
+      : text.includes("ask-form-too-large")
+        ? Object.fromEntries(
+            Array.from({ length: 11 }, (_, index) => [
+              `field${index}`,
+              { type: "string" },
+            ]),
+          )
+        : {
+            strategy: {
+              type: "string",
+              title: "Strategy",
+              enum: ["conservative", "balanced"],
+            },
+            dryRun: { type: "boolean", title: "Dry run" },
+          };
+    const required = droid ? ["choice"] : Object.keys(properties);
     const result = await requestClient("elicitation/create", {
       sessionId: activeSessionId,
       mode: "form",
       message: "How should I proceed?",
-      requestedSchema: { type: "object", properties },
+      requestedSchema: {
+        type: "object",
+        properties,
+        ...(text.includes("ask-form-other-omp") ? {} : { required }),
+      },
     }).catch((error) => ({ error: String(error) }));
     if (requestLog) {
       appendFileSync(
@@ -1124,11 +1144,42 @@ async function handleMessage(message) {
           });
           return;
         }
-        selectedModel = value;
+        await new Promise((resolve) =>
+          setTimeout(
+            resolve,
+            Number(process.env.FAKE_ACP_MODEL_DELAY_MS ?? "0"),
+          ),
+        );
+        const previousConfig = configState();
+        const previousModel = selectedModel;
+        if (value !== "fake/strong" || modelConfigReply !== "stale") {
+          selectedModel = value;
+        }
+        const result = emptyModelResult ? {} : configState();
+        if (value === "fake/strong") {
+          if (
+            modelConfigReply === "stale" ||
+            (modelConfigReply === "stale-once" && previousModel !== value)
+          ) {
+            send({ jsonrpc: "2.0", id: message.id, result: previousConfig });
+            return;
+          }
+          if (modelConfigReply === "missing-model") {
+            result.configOptions = result.configOptions?.filter(
+              (option) => option.category !== "model",
+            );
+          }
+          if (modelConfigReply === "missing-value") {
+            const modelOption = result.configOptions?.find(
+              (option) => option.category === "model",
+            );
+            if (modelOption) delete modelOption.currentValue;
+          }
+        }
         send({
           jsonrpc: "2.0",
           id: message.id,
-          result: emptyModelResult ? {} : configState(),
+          result,
         });
         return;
       }

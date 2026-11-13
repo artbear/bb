@@ -395,6 +395,32 @@ describe("ScrollPositionKeeper", () => {
     expect(timeline.layout.scrollTop).toBe(timeline.layout.maxScrollTop());
   });
 
+  it("follows a scroll without input while the pointer is over an embedded frame, whose wheel events the timeline never receives", () => {
+    const timeline = createTimeline(rowsOf(10), { attached: true });
+    const frame = document.createElement("iframe");
+    timeline.element("row-9").append(frame);
+
+    frame.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    timeline.layout.layoutScrollTo(timeline.layout.scrollTop - 300);
+    expect(timeline.keeper.isAttached()).toBe(false);
+    expect(timeline.layout.scrollTop).toBe(
+      timeline.layout.maxScrollTop() - 300,
+    );
+  });
+
+  it("keeps the end again once a hovered frame leaves the timeline, even before the pointer moves", () => {
+    const timeline = createTimeline(rowsOf(10), { attached: true });
+    const frame = document.createElement("iframe");
+    timeline.element("row-9").append(frame);
+
+    frame.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    frame.remove();
+    timeline.layout.layoutScrollTo(timeline.layout.scrollTop - 300);
+
+    expect(timeline.keeper.isAttached()).toBe(true);
+    expect(timeline.layout.scrollTop).toBe(timeline.layout.maxScrollTop());
+  });
+
   it("follows a focus move after Tab as the reader's scroll", () => {
     const timeline = createTimeline(rowsOf(10), { attached: true });
 
@@ -868,6 +894,30 @@ describe("ScrollPositionKeeper", () => {
     vi.advanceTimersByTime(400);
     expect(setter).toHaveBeenCalled();
     expect(timeline.content.style.transform).toBe("");
+    expect(timeline.topOf("row-3")).toBe(before);
+  });
+
+  it("writes a held correction once the finger lifts from a target that left the document, so older rows loaded mid-touch stay reachable", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    const rows = rowsOf(10);
+    const timeline = createTimeline(rows, { deferWrites: true });
+    const loadingStatus = document.createElement("div");
+    timeline.content.prepend(loadingStatus);
+    timeline.userScrollTo(450);
+    vi.advanceTimersByTime(500);
+    const before = timeline.topOf("row-3");
+
+    loadingStatus.dispatchEvent(new TouchEvent("touchstart", { bubbles: true }));
+    loadingStatus.remove();
+    timeline.setRows([...rowsOf(4, 100, "older"), ...rows]);
+    timeline.keeper.reconcile();
+    expect(timeline.content.style.transform).not.toBe("");
+
+    loadingStatus.dispatchEvent(new TouchEvent("touchend", { bubbles: true }));
+    vi.advanceTimersByTime(400);
+
+    expect(timeline.content.style.transform).toBe("");
+    expect(timeline.layout.scrollTop).toBe(850);
     expect(timeline.topOf("row-3")).toBe(before);
   });
 

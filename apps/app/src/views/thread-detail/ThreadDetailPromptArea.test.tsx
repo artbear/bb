@@ -8,7 +8,6 @@ import type {
   PromptTextMention,
   ThreadQueuedMessage,
   ThreadTimelineActivePromptMode,
-  ThreadTimelineGoal,
   ThreadTimelineModelFallback,
   ThreadWithRuntime,
 } from "@bb/domain";
@@ -43,6 +42,10 @@ import {
 import { LazyQueuedMessagesList } from "@/components/promptbox/banner/LazyQueuedMessagesList";
 import { workflowRow } from "@/test/fixtures/thread-timeline-rows";
 import type { PromptDraftAttachment } from "@bb/client-core";
+import {
+  getPromptDraftAccessor,
+  usePromptDraftStorage,
+} from "@/hooks/usePromptDraftStorage";
 import { BbHttpError } from "@/lib/sdk";
 import type { ExperimentalComposerSelection } from "@get-bb/plugin-sdk";
 import { setComposerTextEffect } from "@/lib/composer-text-effects";
@@ -56,8 +59,9 @@ import {
 } from "./ThreadDetailPromptArea";
 import { makePluginRegistrationSet } from "@/test/fixtures/plugins";
 
-vi.mock("@/hooks/usePromptDraftStorage", () => ({
-  usePromptDraftStorage: () => mocks.promptDraft,
+vi.mock("@/hooks/usePromptDraftStorage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/usePromptDraftStorage")>()),
+  usePromptDraftStorage: vi.fn(),
 }));
 
 function makeQueuedMessage(
@@ -91,16 +95,6 @@ const activePlan = {
   prompt: "Plan the work",
 } satisfies ThreadTimelineActivePromptMode;
 
-const activeGoal = {
-  sourceSeq: 1,
-  updatedAt: 100,
-  objective: "Finish the work",
-  status: "active",
-  tokenBudget: null,
-  tokensUsed: 100,
-  timeUsedSeconds: 10,
-} satisfies ThreadTimelineGoal;
-
 function makePendingInteraction(): PendingInteraction {
   return {
     id: "interaction-1",
@@ -123,6 +117,7 @@ function makePendingInteraction(): PendingInteraction {
           prompt: "Continue?",
           multiSelect: false,
           allowFreeText: true,
+          required: true,
         },
       ],
     },
@@ -140,7 +135,6 @@ interface RenderPromptAreaOptions {
   childThreadsSection?: ComponentProps<
     typeof ThreadDetailPromptArea
   >["childThreadsSection"];
-  goal?: ThreadTimelineGoal | null;
   modelFallback?: ThreadTimelineModelFallback | null;
   pendingInteractions?: readonly PendingInteraction[];
   permissionPolicy?: ComponentProps<
@@ -161,7 +155,6 @@ function buildPromptAreaElement({
   activePromptMode = null,
   activeWorkflows = [],
   childThreadsSection = null,
-  goal = null,
   modelFallback = null,
   pendingInteractions = [],
   permissionPolicy = "editable",
@@ -184,7 +177,6 @@ function buildPromptAreaElement({
         permissionPolicy={permissionPolicy}
         canRestoreEnvironment={false}
         environmentGoneStatus={environmentGoneStatus}
-        goal={goal}
         providerCommands={null}
         sessionOptions={sessionOptions}
         modelFallback={modelFallback}
@@ -213,12 +205,175 @@ function renderPromptArea(options: RenderPromptAreaOptions = {}) {
 
 beforeAll(() => LazyQueuedMessagesList.preload());
 
+describe("shared draft submission ownership", () => {
+  let nextId = 0;
+
+  beforeEach(async () => {
+    const storage = await vi.importActual<
+      typeof import("@/hooks/usePromptDraftStorage")
+    >("@/hooks/usePromptDraftStorage");
+    vi.mocked(usePromptDraftStorage).mockImplementation(
+      storage.usePromptDraftStorage,
+    );
+  });
+
+  afterEach(() => {
+    mocks.sendMessageMutateAsync.mockReset().mockResolvedValue(undefined);
+  });
+
+  function openComposer(threadId: string) {
+    const mounted = renderPromptArea({
+      thread: makeThread({
+        id: threadId,
+        status: "active",
+        runtime: { displayStatus: "active" },
+      }),
+    });
+    fireEvent.click(
+      within(mounted.container).getByRole("button", {
+        name: "Capture plugin host",
+      }),
+    );
+    const ordinary = mocks.composerSubmit;
+    const modifier = mocks.composerModifierSubmit;
+    if (!ordinary || !modifier) throw new Error("Missing composer actions");
+    return { ...mounted, ordinary, modifier };
+  }
+
+  function draftFor(threadId: string) {
+    return getPromptDraftAccessor({
+      kind: "thread",
+      projectId: "proj_1",
+      threadId,
+    });
+  }
+
+  describe.each(["same callback", "remount", "sibling"])("%s", (lifetime) => {
+    it.each([
+      ["ordinary", "ordinary"],
+      ["ordinary", "modifier"],
+      ["modifier", "ordinary"],
+      ["modifier", "modifier"],
+    ] as const)(
+      "serializes %s then %s without losing edits",
+      async (firstAction, secondAction) => {
+        const threadId = `thr_lock_${++nextId}`;
+        const draft = draftFor(threadId);
+        const original = {
+          text: "first message",
+          mentions: [],
+          attachments: [
+            {
+              type: "localFile" as const,
+              path: "uploads/first.txt",
+              name: "first.txt",
+            },
+          ],
+        };
+        const newer = { ...original, text: "edited while pending" };
+        draft.setDraft(original);
+        const response = createDeferredPromise<void>();
+        mocks.sendMessageMutateAsync.mockReturnValue(response.promise);
+        const firstView = openComposer(threadId);
+        const sibling = lifetime === "sibling" ? openComposer(threadId) : null;
+        let firstAttempt: Promise<unknown> = Promise.resolve();
+        let secondAttempt: Promise<unknown> = Promise.resolve();
+        let calls = 0;
+        let pendingVisible = false;
+        try {
+          act(() => {
+            firstAttempt = Promise.resolve(firstView[firstAction]()).catch(
+              (error) => error,
+            );
+            draft.setDraft(newer);
+            if (lifetime === "same callback") {
+              secondAttempt = Promise.resolve(firstView[secondAction]()).catch(
+                (error) => error,
+              );
+            }
+          });
+          if (lifetime !== "same callback") {
+            if (lifetime === "remount") firstView.unmount();
+            const nextView = sibling ?? openComposer(threadId);
+            pendingVisible =
+              within(nextView.container).queryByRole("button", {
+                name: "Modifier submit",
+              }) === null;
+            act(() => {
+              secondAttempt = Promise.resolve(nextView[secondAction]()).catch(
+                (error) => error,
+              );
+            });
+          }
+          calls = mocks.sendMessageMutateAsync.mock.calls.length;
+        } finally {
+          await act(async () => {
+            response.reject(new Error("Simulated transport failure"));
+            await Promise.all([firstAttempt, secondAttempt]);
+          });
+        }
+        expect({ requests: calls, draft: draft.getCurrent() }).toEqual({
+          requests: 1,
+          draft: newer,
+        });
+        expect(await secondAttempt).toBeInstanceOf(Error);
+        if (lifetime !== "same callback") expect(pendingVisible).toBe(true);
+        const retry = openComposer(threadId);
+        mocks.sendMessageMutateAsync.mockResolvedValue(undefined);
+        await act(async () => {
+          await retry.ordinary();
+        });
+        expect(mocks.sendMessageMutateAsync).toHaveBeenCalledTimes(2);
+      },
+    );
+  });
+
+  it("allows a different thread to submit while one scope is pending", async () => {
+    const firstId = `thr_parallel_${++nextId}`;
+    const secondId = `${firstId}_other`;
+    draftFor(firstId).setDraft({ text: "one", mentions: [], attachments: [] });
+    draftFor(secondId).setDraft({ text: "two", mentions: [], attachments: [] });
+    const response = createDeferredPromise<void>();
+    mocks.sendMessageMutateAsync
+      .mockReturnValueOnce(response.promise)
+      .mockResolvedValue(undefined);
+    const firstView = openComposer(firstId);
+    let firstAttempt: Promise<unknown> = Promise.resolve();
+    try {
+      act(() => {
+        firstAttempt = Promise.resolve(firstView.ordinary());
+      });
+      firstView.unmount();
+      const otherView = openComposer(secondId);
+      await act(async () => {
+        await otherView.modifier();
+      });
+      expect(mocks.sendMessageMutateAsync).toHaveBeenCalledTimes(2);
+      expect(mocks.sendMessageMutateAsync).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: secondId }),
+      );
+    } finally {
+      await act(async () => {
+        response.resolve();
+        await firstAttempt;
+      });
+    }
+  });
+});
+
 beforeEach(() => {
+  vi.mocked(usePromptDraftStorage).mockImplementation(() => ({
+    ...mocks.promptDraft,
+    value: mocks.promptDraft.text,
+    clear: vi.fn(),
+    setAttachments: vi.fn(),
+  }));
   testQueryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   mocks.defaultExecutionOptions = null;
   mocks.executionInputSources = {};
+  mocks.unknownReasoning = false;
   mocks.pluginComposerHost = null;
   mocks.composerSubmit = null;
   mocks.composerModifierSubmit = null;
@@ -488,6 +643,30 @@ describe("ThreadDetailPromptArea", () => {
       mocks.composerModifierSubmit?.({ sendAt: 1234567890 }),
     ).rejects.toThrow("There is no new message to schedule or attach data to.");
     expect(mocks.sendQueuedMessageMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("preserves the reasoning preference on follow-ups when the selected model's levels are unknown", async () => {
+    mocks.unknownReasoning = true;
+    mocks.executionInputSources = { reasoningLevel: "explicit" };
+    mocks.defaultExecutionOptions = {
+      model: "gpt-5",
+      permissionMode: "auto",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.promptDraft.text = "Continue";
+    renderPromptArea();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Capture plugin host" }),
+    );
+    await act(async () => {
+      await mocks.composerSubmit?.();
+    });
+    expect(mocks.sendMessageMutateAsync).toHaveBeenCalledOnce();
+    const request = mocks.sendMessageMutateAsync.mock.calls[0]?.[0];
+    expect(request.reasoningLevel).toBe("medium");
+    expect(request.executionInputSources.reasoningLevel).toBe("explicit");
   });
 
   it("preserves plugin submission data through a follow-up composer", async () => {
@@ -863,6 +1042,50 @@ describe("ThreadDetailPromptArea", () => {
     expect(screen.getByTestId("composer-location").textContent).toBe("bottom");
   });
 
+  it("saves the inline editor's model and permission picks onto the queued message only", async () => {
+    mocks.queuedMessages = [makeQueuedMessage()];
+
+    renderPromptArea();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit queued message 1" }),
+    );
+    const inlineEditor = within(
+      screen.getByTestId("inline-queued-message-editor"),
+    );
+    const queued = mocks.queuedMessages[0]!;
+    expect(inlineEditor.getByTestId("selected-model").textContent).toBe(
+      queued.model,
+    );
+
+    fireEvent.click(
+      inlineEditor.getByRole("button", { name: "Choose model gpt-5-mini" }),
+    );
+    fireEvent.click(
+      inlineEditor.getByRole("button", { name: "Choose permission full" }),
+    );
+    expect(inlineEditor.getByTestId("selected-model").textContent).toBe(
+      "gpt-5-mini",
+    );
+    expect(inlineEditor.getByTestId("selected-permission").textContent).toBe(
+      "full",
+    );
+    expect(mocks.setPermissionMode).not.toHaveBeenCalled();
+    fireEvent.click(
+      inlineEditor.getByRole("button", { name: "Submit composer" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.updateQueuedMessageMutateAsync).toHaveBeenCalledWith({
+        expectedUpdatedAt: 1,
+        id: "thr_1",
+        input: [{ type: "text", text: "Already queued", mentions: [] }],
+        model: "gpt-5-mini",
+        permissionMode: "full",
+        queuedMessageId: "qmsg_1",
+      });
+    });
+  });
+
   it("exposes the inline queued draft to plugins without dropping attachments", async () => {
     mocks.queuedMessages = [
       makeQueuedMessage({
@@ -1138,10 +1361,10 @@ describe("ThreadDetailPromptArea", () => {
       "full",
     );
     expect(inlineEditor.getByTestId("execution-read-only").textContent).toBe(
-      "true",
+      "false",
     );
     expect(inlineEditor.getByTestId("permission-read-only").textContent).toBe(
-      "true",
+      "false",
     );
     fireEvent.click(
       inlineEditor.getByRole("button", { name: "Capture plugin host" }),
@@ -1436,19 +1659,6 @@ describe("ThreadDetailPromptArea", () => {
     expect(screen.getByTestId("child-threads-banner")).toBe(banner);
   });
 
-  it("keeps Goal above a pending interaction", () => {
-    renderPromptArea({
-      goal: activeGoal,
-      pendingInteractions: [makePendingInteraction()],
-    });
-
-    expect(
-      screen
-        .getAllByTestId("composer-stack-item")
-        .map((item) => item.textContent),
-    ).toEqual(["Goal banner", "Pending interaction"]);
-  });
-
   it("keeps plugin banners mounted while pending interaction suspends editor regions", () => {
     setPluginSlotRegistrations(
       "pending-plugin",
@@ -1505,26 +1715,12 @@ describe("ThreadDetailPromptArea", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Exit plan mode" }));
 
-    expect(mocks.cancelThreadPlanMutate).toHaveBeenCalledWith("thr_plan");
-    expect(mocks.clearThreadGoalMutate).not.toHaveBeenCalled();
+    expect(mocks.cancelThreadPlanMutateAsync).toHaveBeenCalledWith("thr_plan");
   });
 
-  it("wires the Goal clear action to the current thread", () => {
-    renderPromptArea({
-      goal: activeGoal,
-      thread: makeThread({ id: "thr_goal" }),
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Clear active Goal" }));
-
-    expect(mocks.clearThreadGoalMutate).toHaveBeenCalledWith("thr_goal");
-    expect(mocks.cancelThreadPlanMutate).not.toHaveBeenCalled();
-  });
-
-  it("keeps independent Plan and Goal banners above a pending interaction", () => {
+  it("keeps the Plan banner above a pending interaction", () => {
     renderPromptArea({
       activePromptMode: activePlan,
-      goal: activeGoal,
       pendingInteractions: [makePendingInteraction()],
     });
 
@@ -1532,7 +1728,7 @@ describe("ThreadDetailPromptArea", () => {
       screen
         .getAllByTestId("composer-stack-item")
         .map((item) => item.textContent),
-    ).toEqual(["Plan banner", "Goal banner", "Pending interaction"]);
+    ).toEqual(["Plan banner", "Pending interaction"]);
   });
 
   it("selects the provider fallback model for the next turn", () => {

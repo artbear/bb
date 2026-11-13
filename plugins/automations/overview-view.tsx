@@ -299,8 +299,6 @@ export function OverviewRow({
       actions={
         <AutomationActionsMenu
           name={automation.name}
-          projectId={automation.projectId}
-          automationId={automation.id}
           pending={runPending}
           onRunNow={() => {
             setRunPending(true);
@@ -388,8 +386,6 @@ function AutomationProblemRow({
       actions={
         <AutomationActionsMenu
           name={automation.name}
-          projectId={automation.projectId}
-          automationId={automation.id}
           pending={false}
           runDisabledReason={
             repairTarget !== null
@@ -672,7 +668,7 @@ export function AutomationOverviewView({
         {
           id: "installed",
           label: "Installed",
-          count: entries?.length ?? undefined,
+          count: entries?.length ?? "pending",
         },
         { id: "browse", label: "Browse" },
       ]}
@@ -681,6 +677,8 @@ export function AutomationOverviewView({
       actions={
         <ResourceCreateButton
           label="New automation"
+          shortLabel="New"
+          icon="Repeat"
           templates={AUTOMATION_CREATE_TEMPLATES}
           onCreate={onCreateViaChat}
         />

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { retiredSdkMemberWarnings } from "./retired-sdk-members.js";
+import {
+  retiredRpcInvalidatesWarnings,
+  retiredSdkMemberWarnings,
+} from "./retired-sdk-members.js";
 
 function retiredNames(source: string): string[] {
   return retiredSdkMemberWarnings(source)
@@ -21,6 +24,11 @@ describe("retiredSdkMemberWarnings", () => {
       "destructuring",
       "const { diffFiles, diffBranches: branches, list } = bb.sdk.environments;",
       ["diffBranches", "diffFiles"],
+    ],
+    [
+      "the Viewed methods",
+      "await sdk.environments.experimental_markDiffViewed(args); const { experimental_diffViewed } = bb.sdk.environments;",
+      ["experimental_diffViewed", "experimental_markDiffViewed"],
     ],
   ])("flags %s", (_label, source, names) => {
     expect(retiredNames(source)).toEqual(names);
@@ -83,6 +91,29 @@ describe("retiredSdkMemberWarnings", () => {
     expect(
       retiredSdkMemberWarnings(
         "panel.openTab({ tab }); ctx.experimental_panel.toggleTab({ tab }); const deps = { openPanel: () => true };",
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("retiredRpcInvalidatesWarnings", () => {
+  it.each([
+    ["a property", "save: { input, output, invalidates: () => [TAG] },"],
+    ["a quoted key", '{ "invalidates": () => [TAG] }'],
+    [
+      "a method",
+      "clear: {\n  invalidates({ id }): readonly string[] {\n    return [id];\n  },\n}",
+    ],
+  ])("flags %s", (_label, source) => {
+    expect(retiredRpcInvalidatesWarnings(source)).toEqual([
+      expect.stringContaining("bb.rpc.experimental_invalidate(tags)"),
+    ]);
+  });
+
+  it("leaves reads, calls and other names alone", () => {
+    expect(
+      retiredRpcInvalidatesWarnings(
+        "tags: () => [TAG]; cache.invalidates(key); const invalidated = [];",
       ),
     ).toEqual([]);
   });

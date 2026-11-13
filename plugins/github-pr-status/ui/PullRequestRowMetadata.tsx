@@ -11,13 +11,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import type { EnvironmentPullRequest, PullRequest } from "../contract";
 import { pullRequestsReadContract } from "../read-contract";
 import {
   PULL_REQUEST_STATE_DISPLAY,
   describePullRequestStatus,
   getPullRequestGithubCheckStatus,
+  getPullRequestNextStep,
   type GithubCheckStatus,
 } from "./display";
 import { useRefetchOnShowAndFocus } from "./refetch-on-show";
@@ -63,20 +63,18 @@ export function PullRequestBadge({
   const state = PULL_REQUEST_STATE_DISPLAY[pullRequest.state];
   const checks = getPullRequestGithubCheckStatus(pullRequest);
   const counts = checks === null ? null : checkCounts(pullRequest);
-  const conflicts =
-    (pullRequest.state === "open" || pullRequest.state === "draft") &&
-    pullRequest.attention === "conflicts";
+  const nextStep = getPullRequestNextStep(pullRequest);
+  const action =
+    nextStep?.tone === "action" ? nextStep.label.toLowerCase() : null;
   const glyph =
-    conflicts || checks === "failure"
-      ? "blocked"
-      : checks === "pending"
-        ? "running"
-        : null;
+    action !== null ? "blocked" : checks === "pending" ? "running" : null;
   const label = [
-    `Pull request #${pullRequest.number}`,
-    state.label.toLowerCase(),
-    conflicts ? "conflicts" : null,
-    checks === null ? null : CHECKS_LABEL[checks],
+    ...new Set([
+      `Pull request #${pullRequest.number}`,
+      state.label.toLowerCase(),
+      action,
+      checks === null ? null : CHECKS_LABEL[checks],
+    ]),
   ]
     .filter((part) => part !== null)
     .join(", ");
@@ -88,11 +86,15 @@ export function PullRequestBadge({
       className="flex shrink-0 items-center gap-1 text-xs leading-3.5 tabular-nums"
       onPointerEnter={hovered ? undefined : () => setHovered(true)}
     >
-      <Icon
-        name={state.icon}
-        className={cn("size-3.5 shrink-0", state.className)}
-      />
-      <span className="text-subtle-foreground">#{pullRequest.number}</span>
+      <span
+        className={
+          pullRequest.state === "draft"
+            ? "text-subtle-foreground"
+            : state.className
+        }
+      >
+        #{pullRequest.number}
+      </span>
       {glyph === null ? null : <AttentionGlyph kind={glyph} />}
     </span>
   );
@@ -104,7 +106,7 @@ export function PullRequestBadge({
         <div className="truncate">
           #{pullRequest.number} {pullRequest.title}
         </div>
-        <div className="text-muted-foreground">
+        <div className="text-primary-foreground/75">
           {describePullRequestStatus(pullRequest)}
           {counts === null ? null : ` · ${counts}`}
         </div>

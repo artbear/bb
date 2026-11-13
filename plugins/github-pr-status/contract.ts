@@ -226,27 +226,18 @@ export const githubPrStatusRpcContract = defineRpcContract({
       "Re-check the environment's pull request on GitHub now, whatever the age of the saved row, and resolve once the row is current.",
     input: environmentActionInputSchema,
     output: z.object({ ok: z.literal(true) }).strict(),
-    invalidates: ({ environmentId }) => [
-      environmentPullRequestTag(environmentId),
-    ],
   },
   markReady: {
     experimental_description:
       "Mark the environment's draft pull request ready for review.",
     input: environmentActionInputSchema,
     output: actionOutputSchema,
-    invalidates: ({ environmentId }) => [
-      environmentPullRequestTag(environmentId),
-    ],
   },
   markDraft: {
     experimental_description:
       "Convert the environment's open pull request back to a draft.",
     input: environmentActionInputSchema,
     output: actionOutputSchema,
-    invalidates: ({ environmentId }) => [
-      environmentPullRequestTag(environmentId),
-    ],
   },
   merge: {
     experimental_description:
@@ -255,9 +246,6 @@ export const githubPrStatusRpcContract = defineRpcContract({
       .extend({ method: pullRequestMergeMethodSchema })
       .strict(),
     output: actionOutputSchema,
-    invalidates: ({ environmentId }) => [
-      environmentPullRequestTag(environmentId),
-    ],
   },
 });
 
@@ -292,6 +280,11 @@ const hostPullRequestActionResultSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(false), message: z.string().min(1) }).strict(),
 ]);
 
+const hostRefsSchema = z
+  .object({ oid: z.string().nullable(), branchName: z.string().nullable() })
+  .strict();
+export type HostRefs = z.infer<typeof hostRefsSchema>;
+
 export const githubPrStatusHostContract = defineRpcContract({
   views: {
     experimental_retryable: true,
@@ -302,7 +295,13 @@ export const githubPrStatusHostContract = defineRpcContract({
             z
               .object({
                 path: z.string().min(1),
-                url: z.string().url().nullable(),
+                known: z
+                  .object({
+                    url: z.string().url(),
+                    branchName: z.string().nullable(),
+                  })
+                  .strict()
+                  .nullable(),
                 refresh: z.boolean(),
               })
               .strict(),
@@ -311,17 +310,26 @@ export const githubPrStatusHostContract = defineRpcContract({
           .max(HOST_VIEWS_MAX_READS),
       })
       .strict(),
-    output: z.array(hostPullRequestLookupSchema),
+    output: z.array(
+      z
+        .object({
+          lookup: hostPullRequestLookupSchema,
+          refs: hostRefsSchema.nullable(),
+        })
+        .strict(),
+    ),
   },
   upstream: {
     input: z.object({ path: z.string().min(1) }).strict(),
-    output: z
-      .object({ oid: z.string().nullable(), branchName: z.string().nullable() })
-      .strict(),
+    output: hostRefsSchema,
   },
   act: {
     input: z
-      .object({ path: z.string().min(1), action: hostPullRequestActionSchema })
+      .object({
+        path: z.string().min(1),
+        url: z.string().url(),
+        action: hostPullRequestActionSchema,
+      })
       .strict(),
     output: hostPullRequestActionResultSchema,
   },

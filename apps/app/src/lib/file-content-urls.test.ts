@@ -1,25 +1,17 @@
-import { describe, expect, it } from "vitest";
-import { buildThreadHostFileContentUrl } from "./file-content-urls";
+import { expect, it } from "vitest";
+import { buildHostFileContentUrl } from "./file-content-urls";
 
-describe("buildThreadHostFileContentUrl", () => {
-  it("keeps a UNC root instead of turning it into a POSIX path", () => {
-    expect(
-      buildThreadHostFileContentUrl("thr_1", "\\\\server\\share\\file.zip"),
-    ).toBe("/api/v1/threads/thr_1/host-files/unc%3Aserver/share/file.zip");
-  });
-
-  it("keeps a Windows drive path and a POSIX path", () => {
-    expect(
-      buildThreadHostFileContentUrl("thr_1", "C:\\Users\\me\\file.zip"),
-    ).toBe("/api/v1/threads/thr_1/host-files/C%3A/Users/me/file.zip");
-    expect(buildThreadHostFileContentUrl("thr_1", "/tmp/file.zip")).toBe(
-      "/api/v1/threads/thr_1/host-files/tmp/file.zip",
-    );
-    expect(
-      buildThreadHostFileContentUrl("thr_1", "/unc:server/share/file.zip"),
-    ).toBe("/api/v1/threads/thr_1/host-files/~unc%3Aserver/share/file.zip");
-    expect(buildThreadHostFileContentUrl("thr_1", "/unc:notes.txt")).toBe(
-      "/api/v1/threads/thr_1/host-files/~unc%3Anotes.txt",
-    );
-  });
+it.each([
+  ["/Users/me/a b.png", "/api/v1/hosts/host_1/files/Users/me/a%20b.png"],
+  ["C:\\Users\\me\\a.png", "/api/v1/hosts/host_1/files/C%3A/Users/me/a.png"],
+  [
+    "\\\\server\\share\\dir\\a b.png",
+    "/api/v1/hosts/host_1/files/%5C%5Cserver/share/dir/a%20b.png",
+  ],
+  [
+    "//server/share/dir/a.png",
+    "/api/v1/hosts/host_1/files/%5C%5Cserver/share/dir/a.png",
+  ],
+])("keeps the root of %s in the host file URL", (path, url) => {
+  expect(buildHostFileContentUrl("host_1", path)).toBe(url);
 });

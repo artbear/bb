@@ -5,14 +5,13 @@ import {
   getHostPathComparisonKey,
   getHostPathDirname,
   getHostPathFlavor,
+  getRelativeHostPathSegments,
   isAbsoluteHostPath,
   isHostPathRoot,
   isHostPathWithin,
   isWindowsUncHostPath,
   joinHostPath,
   normalizeHostPath,
-  parseUncWireSegments,
-  toHostFileUrlPath,
 } from "../src/host-path.js";
 
 describe("host-path", () => {
@@ -28,41 +27,6 @@ describe("host-path", () => {
     expect(isAbsoluteHostPath("C:src")).toBe(false);
     expect(isWindowsUncHostPath("\\\\server\\share")).toBe(true);
     expect(isWindowsUncHostPath("C:\\src")).toBe(false);
-  });
-
-  it("keeps a UNC root in the host-file URL path", () => {
-    expect(toHostFileUrlPath("\\\\server\\share\\file.zip")).toBe(
-      "unc:server/share/file.zip",
-    );
-    expect(toHostFileUrlPath("//server/share/dir/file.zip")).toBe(
-      "unc:server/share/dir/file.zip",
-    );
-    expect(toHostFileUrlPath("C:\\Users\\me\\file.zip")).toBe(
-      "C:/Users/me/file.zip",
-    );
-    expect(toHostFileUrlPath("/tmp/file.zip")).toBe("tmp/file.zip");
-    expect(parseUncWireSegments(["unc:server", "share", "file.zip"])).toEqual({
-      kind: "unc",
-      rootPath: "\\\\server\\share\\",
-      segments: ["file.zip"],
-    });
-    expect(parseUncWireSegments(["unc:", "share"])).toEqual({
-      kind: "invalid",
-    });
-    expect(parseUncWireSegments(["tmp", "file.zip"])).toEqual({ kind: "none" });
-    expect(toHostFileUrlPath("/unc:server/share/file.zip")).toBe(
-      "~unc:server/share/file.zip",
-    );
-    expect(toHostFileUrlPath("/unc:notes.txt")).toBe("~unc:notes.txt");
-    expect(toHostFileUrlPath("/~unc:notes.txt")).toBe("~~unc:notes.txt");
-    expect(parseUncWireSegments(["~unc:server", "share", "file.zip"])).toEqual({
-      kind: "posix",
-      segments: ["unc:server", "share", "file.zip"],
-    });
-    expect(parseUncWireSegments(["~unc:notes.txt"])).toEqual({
-      kind: "posix",
-      segments: ["unc:notes.txt"],
-    });
   });
 
   it("normalizes each flavor to a single spelling", () => {
@@ -172,8 +136,39 @@ describe("host-path", () => {
     expect(getHostPathDirname("C:\\")).toBe("C:\\");
     expect(getHostPathDirname("/home/me")).toBe("/home");
     expect(getHostPathDirname("/home")).toBe("/");
+    expect(getHostPathDirname("\\\\server\\share\\skills\\a\\SKILL.md")).toBe(
+      "\\\\server\\share\\skills\\a",
+    );
+    expect(getHostPathBasename("\\\\server\\share\\skills\\a")).toBe("a");
     expect(getHostPathBasename("C:\\src\\repo\\")).toBe("repo");
     expect(getHostPathBasename("/home/me/a.ts")).toBe("a.ts");
     expect(getHostPathBasename("/")).toBe("");
+  });
+
+  it.each([
+    { path: "a.ts", segments: ["a.ts"] },
+    { path: "docs/plan.md", segments: ["docs", "plan.md"] },
+    { path: ".hidden/x", segments: [".hidden", "x"] },
+    { path: "x/a:b.txt", segments: ["x", "a:b.txt"] },
+    { path: "a:b.txt", segments: ["a:b.txt"] },
+    { path: "", segments: null },
+    { path: "a\0b", segments: null },
+    { path: "/etc/passwd", segments: null },
+    { path: "a//b", segments: null },
+    { path: "a/", segments: null },
+    { path: "./a", segments: null },
+    { path: "a/./b", segments: null },
+    { path: "../escape.ts", segments: null },
+    { path: "a/../../b", segments: null },
+    { path: "a\\b", segments: null },
+    { path: "..\\escape.ts", segments: null },
+    { path: "\\escape.ts", segments: null },
+    { path: "C:", segments: null },
+    { path: "C:/Windows/win.ini", segments: null },
+    { path: "c:\\Windows", segments: null },
+    { path: "//server/share/x", segments: null },
+    { path: "\\\\server\\share\\x", segments: null },
+  ])("parses relative path $path", ({ path, segments }) => {
+    expect(getRelativeHostPathSegments(path)).toEqual(segments);
   });
 });

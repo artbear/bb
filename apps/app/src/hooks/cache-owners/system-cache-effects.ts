@@ -32,9 +32,11 @@ import {
   hostsQueryKey,
   projectsQueryKey,
   serverMoveStatusQueryKey,
+  uiPreferencesQueryKey,
   sidebarNavigationQueryKey,
   systemConfigQueryKey,
   systemProviderCatalogQueryKey,
+  systemProviderStatesQueryKey,
   threadPromptHistoryQueryKeyPrefix,
   threadSearchQueryKeyPrefix,
   threadsQueryKey,
@@ -124,6 +126,10 @@ export function invalidateSystemConfig({ queryClient }: QueryClientArg): void {
   });
 }
 
+export function invalidateUiPreferences({ queryClient }: QueryClientArg): void {
+  invalidateQueryKeys({ queryClient, queryKeys: [uiPreferencesQueryKey()] });
+}
+
 export function invalidateMachineEnvironment({
   queryClient,
 }: QueryClientArg): void {
@@ -153,6 +159,15 @@ export function invalidateSystemProviders({
 }: QueryClientArg): Promise<void> {
   return queryClient.invalidateQueries({
     queryKey: allSystemProvidersQueryKeyPrefix(),
+  });
+}
+
+export function restartSystemProviderStatesLoad({
+  queryClient,
+  hostId,
+}: QueryClientArg & { hostId: string | null }): Promise<void> {
+  return queryClient.resetQueries({
+    queryKey: systemProviderStatesQueryKey({ environmentId: null, hostId }),
   });
 }
 
