@@ -1373,6 +1373,9 @@ try {
     await timed("full stack", () => smokeFullStack(installedBinDir, sdkDir));
     await timed("daemon join", () => smokeDaemonJoin(installedBinDir));
   }
+  if (process.argv[2]) {
+    await copyFile(tarballPath, join(process.argv[2], basename(tarballPath)));
+  }
   process.stdout.write(
     `bb-app tarball smoke passed in ${formatElapsed(smokeStartedAt)}\n`,
   );
