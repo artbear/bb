@@ -103,6 +103,18 @@ function isPermanentPostRejection(error: Error): boolean {
   );
 }
 
+function isOversizedEventBatch(error: Error): boolean {
+  return (
+    error instanceof ServerResponseError &&
+    error.status === 413 &&
+    !error.retryable
+  );
+}
+
+function shouldDivideFailedBatch(error: Error): boolean {
+  return isPermanentPostRejection(error) || isOversizedEventBatch(error);
+}
+
 function summarizeRejectedEvents(
   events: readonly HostDaemonRejectedEvent[],
 ): RejectedEventSummary[] {
@@ -249,7 +261,7 @@ export function createEventSink(options: CreateEventSinkOptions): EventSink {
       );
     } catch (error) {
       const normalized = normalizeCaughtError(error);
-      if (!isPermanentPostRejection(normalized)) {
+      if (!shouldDivideFailedBatch(normalized)) {
         options.logger.error(
           runtimeErrorLogFields(normalized),
           "Failed to post daemon events; keeping events queued for retry",
@@ -265,7 +277,9 @@ export function createEventSink(options: CreateEventSinkOptions): EventSink {
             eventType: offending.envelope.event.type,
             threadId: offending.envelope.threadId,
           },
-          "Dropped a daemon event the server will never accept",
+          isOversizedEventBatch(normalized)
+            ? "Dropped a daemon event that exceeds the request size limit"
+            : "Dropped a daemon event the server will never accept",
         );
         return 1;
       }

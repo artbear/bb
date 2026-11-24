@@ -300,6 +300,100 @@ describe("event sink", () => {
     expect(postEvents).not.toHaveBeenCalled();
   });
 
+  function requestTooLarge(): ServerResponseError {
+    return new ServerResponseError({
+      action: "post events",
+      bodyMessage: null,
+      code: null,
+      retryable: false,
+      status: 413,
+      statusText: "Request Entity Too Large",
+    });
+  }
+
+  it("splits a batch the server rejects as too large and keeps delivering the pieces", async () => {
+    const delivered: string[] = [];
+    const postEvents = vi.fn<CreateEventSinkOptions["postEvents"]>(
+      async (events) => {
+        if (events.length > 1) {
+          throw requestTooLarge();
+        }
+        delivered.push(...events.map((event) => event.threadId));
+        return {
+          acceptedEvents: events.map((event, eventIndex) => ({
+            eventIndex,
+            sequence: eventIndex + 1,
+            threadId: event.threadId,
+          })),
+          rejectedEvents: [],
+        };
+      },
+    );
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger: createLogger(),
+      postEvents,
+    });
+
+    sink.emit({ threadId: "thr_a", event: systemErrorEvent("thr_a") });
+    sink.emit({ threadId: "thr_b", event: systemErrorEvent("thr_b") });
+    sink.emit({ threadId: "thr_c", event: systemErrorEvent("thr_c") });
+    await sink.flush();
+
+    expect(delivered).toEqual(["thr_a", "thr_b", "thr_c"]);
+    expect(sink.listUndeliveredThreadIds()).toEqual([]);
+
+    postEvents.mockClear();
+    await sink.flush();
+    expect(postEvents).not.toHaveBeenCalled();
+  });
+
+  it("drops one event that is too large and delivers the events queued behind it", async () => {
+    const logger = createLogger();
+    const delivered: string[] = [];
+    const postEvents = vi.fn<CreateEventSinkOptions["postEvents"]>(
+      async (events) => {
+        if (
+          events.length > 1 ||
+          events.some((event) => event.threadId === "thr_huge")
+        ) {
+          throw requestTooLarge();
+        }
+        delivered.push(...events.map((event) => event.threadId));
+        return {
+          acceptedEvents: events.map((event, eventIndex) => ({
+            eventIndex,
+            sequence: eventIndex + 1,
+            threadId: event.threadId,
+          })),
+          rejectedEvents: [],
+        };
+      },
+    );
+    const sink = createEventSink({
+      isSessionOpen: () => true,
+      logger,
+      postEvents,
+    });
+
+    sink.emit({ threadId: "thr_huge", event: systemErrorEvent("thr_huge") });
+    sink.emit({ threadId: "thr_next", event: systemErrorEvent("thr_next") });
+    await sink.flush();
+
+    expect(delivered).toEqual(["thr_next"]);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "system/error",
+        threadId: "thr_huge",
+      }),
+      "Dropped a daemon event that exceeds the request size limit",
+    );
+
+    postEvents.mockClear();
+    await sink.flush();
+    expect(postEvents).not.toHaveBeenCalled();
+  });
+
   it("keeps retrying a batch that fails for a retryable reason", async () => {
     const postEvents = vi
       .fn<CreateEventSinkOptions["postEvents"]>()
