@@ -19,6 +19,7 @@ import {
   FollowUpPromptBox,
   type FollowUpSubmitMode,
 } from "@/components/promptbox/FollowUpPromptBox";
+import { composerDraftStore } from "@/test/fixtures/composer-draft";
 import { makePluginRegistrationSet } from "@/test/fixtures/plugins";
 import { createInertScrollPositionKeeper } from "@/test/scroll-position-keeper";
 import { testTypeaheadConfig } from "@/test/fixtures/composer-search";
@@ -269,7 +270,6 @@ function createFollowUpPromptBoxProps(
 ): Parameters<typeof FollowUpPromptBox>[0] {
   return {
     attachments: {
-      items: [],
       projectId: "proj_test",
       isAttaching: false,
       error: null,
@@ -279,14 +279,11 @@ function createFollowUpPromptBoxProps(
     stack: null,
     composer: {
       history: {
-        currentDraft: { text: "Follow up", mentions: [], attachments: [] },
         entries: [],
         onSelectEntry: vi.fn(),
       },
       isFollowUpSubmitting: false,
-      message: "Follow up",
-      mentionRanges: [],
-      onChangeMessage: vi.fn(),
+      draft: composerDraftStore("Follow up"),
       onModifierSubmit: vi.fn(),
       onSubmit: vi.fn(),
       compactPromptPlaceholder: "Ask a follow-up",
@@ -314,6 +311,7 @@ function createFollowUpPromptBoxProps(
       reasoning: {
         value: "medium",
         options: [],
+        isLoading: false,
         onChange: vi.fn(),
       },
     },
@@ -1383,10 +1381,14 @@ describe("FollowUpPromptBox", () => {
           vi.advanceTimersByTime(20);
         });
         act(() => input.blur());
-        act(() => vi.advanceTimersByTime(550));
+        act(() => {
+          vi.advanceTimersByTime(550);
+        });
 
         fireEvent.pointerDown(control, { button: 0, pointerType: "touch" });
-        act(() => vi.advanceTimersByTime(300));
+        act(() => {
+          vi.advanceTimersByTime(300);
+        });
 
         expect(
           screen.getByTestId("prompt-box").getAttribute("data-compact"),
@@ -1421,13 +1423,17 @@ describe("FollowUpPromptBox", () => {
         act(() => input.focus());
         fireEvent.pointerDown(control);
         act(() => input.blur());
-        act(() => vi.advanceTimersByTime(20));
+        act(() => {
+          vi.advanceTimersByTime(20);
+        });
         expect(
           screen.getByTestId("prompt-box").getAttribute("data-compact"),
         ).toBe("false");
 
         fireEvent[releaseEvent](control);
-        act(() => vi.advanceTimersByTime(20));
+        act(() => {
+          vi.advanceTimersByTime(20);
+        });
         expect(
           screen.getByTestId("prompt-box").getAttribute("data-compact"),
         ).toBe("true");
@@ -1493,12 +1499,16 @@ describe("FollowUpPromptBox", () => {
         screen.getByTestId("prompt-box").getAttribute("data-compact"),
       ).toBe("false");
 
-      act(() => vi.advanceTimersByTime(700));
+      act(() => {
+        vi.advanceTimersByTime(700);
+      });
       expect(
         screen.getByTestId("prompt-box").getAttribute("data-compact"),
       ).toBe("false");
 
-      act(() => vi.advanceTimersByTime(100));
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
       expect(
         screen.getByTestId("prompt-box").getAttribute("data-compact"),
       ).toBe("true");

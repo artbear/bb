@@ -20,7 +20,6 @@ import { createLogger } from "@bb/logger";
 import {
   getAppSettings,
   getDisabledProviderIds,
-  getExperiments,
   getAutoAppUpdate,
   getSkippedAppUpdate,
   setAutoAppUpdate,
@@ -47,6 +46,8 @@ import { createAppVersionService } from "./services/system/app-version.js";
 import { createLauncherChannel } from "./services/system/launcher-channel.js";
 import { createBbAppManagedConfigReloader } from "./services/system/bb-app-managed-config.js";
 import { startGatedPerformanceDiagnostics } from "./services/system/performance-diagnostics.js";
+import { createGatedQueryPlanObserver } from "./services/system/query-plan-audit.js";
+import { startGatedWalCheckpointer } from "./services/system/wal-checkpoint-experiment.js";
 import { startEventLoopStallMonitor } from "./services/system/event-loop-stall-monitor.js";
 import {
   runPeriodicSweeps,
@@ -63,10 +64,6 @@ import {
   appInstallFromServerConfig,
   createTelemetryService,
 } from "./services/system/telemetry.js";
-import {
-  createSetupGuideExperiment,
-  SETUP_GUIDE_FLAG_TIMEOUT_MS,
-} from "./services/system/setup-guide-experiment.js";
 import { TerminalSessionLifecycle } from "./services/terminals/terminal-session-lifecycle.js";
 import { createLifecycleDedupers } from "./lifecycle-dedupers.js";
 import type { ServerLogger, ServerRuntimeConfig } from "./types.js";
@@ -141,6 +138,11 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
   const db = initDb(serverConfig.databasePath, {
     slowQueryThresholdMs: () => (diagnosticsEnabled() ? 25 : 100),
     slowQueryDiagnosticsEnabled: () => diagnosticsEnabled(),
+    queryPlanObserver: createGatedQueryPlanObserver({
+      databasePath: serverConfig.databasePath,
+      enabled: () => serverConfig.BB_QUERY_PLAN_AUDIT || diagnosticsEnabled(),
+      logger,
+    }),
     dataDir: serverConfig.BB_DATA_DIR,
     logger,
   });
@@ -176,6 +178,8 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
         })
       : null;
   const hub = new NotificationHub();
+  const walCheckpointer = startGatedWalCheckpointer({ db, hub, logger });
+  walCheckpointer.attach(db.$client);
   const watchInterests = new WatchInterestCoordinator({ db, hub });
   const sharedPorts = new HostSharedPortCoordinator({ db, hub });
   const lifecycleDedupers = createLifecycleDedupers();
@@ -247,14 +251,6 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     telemetryEnabled: getAppSettings(db).telemetryEnabled,
     logger,
   });
-  const setupGuideExperiment = await createSetupGuideExperiment({
-    dataDir: serverConfig.BB_DATA_DIR,
-    fetch: globalThis.fetch,
-    flagTimeoutMs: SETUP_GUIDE_FLAG_TIMEOUT_MS,
-    logger,
-    override: serverConfig.BB_SETUP_GUIDE_VARIANT ?? null,
-    telemetry,
-  });
 
   const machineAuth = await createMachineAuthService({
     dataDir: serverConfig.BB_DATA_DIR,
@@ -299,7 +295,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
       : null;
   const countRunningThreads = (): number => listRunningThreads(db).length;
   const threadsResumeAfterRestart = (): boolean =>
-    getExperiments(db).resumeThreadsAfterRestart;
+    getAppSettings(db).resumeThreadsAfterRestart;
   const sendHoldDeps = {
     aiServices,
     config: runtimeConfig,
@@ -351,7 +347,6 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     autoCheckMs: AUTO_UPDATE_CHECK_MS,
     countRunningThreads,
     inner: appUpdateService,
-    isEnabled: () => getExperiments(db).updateWhenIdle,
     logger,
     notifyChanged: notifyAppUpdateChanged,
     onChangedMessage: (listener) => hub.onChangedMessage(listener),
@@ -385,7 +380,6 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
       appVersion,
       bbAppManagedConfig,
       cliCommand,
-      setupGuideExperiment,
       config: runtimeConfig,
       db,
       hub,
@@ -403,6 +397,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
       terminalSessions,
       watchInterests,
       sharedPorts,
+      walCheckpointer,
     },
     {
       serverMove: {
@@ -437,6 +432,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
   );
   const performanceDiagnostics = await startGatedPerformanceDiagnostics({
     allowed: serverConfig.BB_PERF_DIAGNOSTICS,
+    codeOwners: () => pluginService.listCodeOwners(),
     dataDir: serverConfig.BB_DATA_DIR,
     db,
     hub,
@@ -480,6 +476,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
     plugins: pluginService,
     telemetry,
     terminalSessions,
+    walCheckpointer,
   };
   const providerModelCatalogPrewarm =
     pendingServerMove === null
@@ -589,6 +586,7 @@ export async function runServer(serverConfig: ServerConfig): Promise<void> {
       await tunnelIngress.closeAll();
       await closeWebSockets();
       await closeServer;
+      await walCheckpointer.stop();
     })();
     return shutdownPromise;
   };

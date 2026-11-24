@@ -1,7 +1,6 @@
 import {
   createQueuedThreadMessage,
   getThread,
-  listEvents,
   listQueuedThreadMessages,
   listQueuedThreadMessagesForApi,
   listRunningThreads,
@@ -14,7 +13,7 @@ import type {
   MessageDispatchHookContext,
   PluginHookName,
 } from "@get-bb/plugin-sdk";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../src/errors.js";
 import {
   invokePluginInline,
@@ -31,7 +30,7 @@ import { acceptThreadSendRequest } from "../../src/services/threads/thread-send-
 import { attemptDispatch } from "../../src/services/threads/dispatch-attempt.js";
 import { runQueuedMessageDispatch } from "../../src/services/threads/queued-message-dispatch.js";
 import { createThreadFromRequest } from "../../src/services/threads/thread-create.js";
-import { applyLoggedThreadLifecycleEvent } from "../../src/services/threads/lifecycle-outcome.js";
+import { moveThreadStatus } from "../helpers/thread-status.js";
 import { createClientTurnRequestId } from "../../src/services/threads/thread-events.js";
 import { toThreadQueuedMessage } from "../../src/services/threads/thread-queued-messages.js";
 import { textInput } from "../helpers/prompt-input.js";
@@ -49,6 +48,7 @@ import {
   seedTurnStarted,
 } from "../helpers/seed.js";
 import { withTestHarness, type TestAppHarness } from "../helpers/test-app.js";
+import { listEvents } from "@bb/db/testing";
 
 const WORKSPACE_PATH = "/tmp/dispatch-hooks-project";
 
@@ -73,6 +73,7 @@ function installHooks(
 
 afterEach(() => {
   setPluginHookProvider(undefined);
+  vi.useRealTimers();
 });
 
 function seedDispatchFixture(harness: TestAppHarness, hostId: string) {
@@ -351,8 +352,8 @@ describe("thread status races under a send", () => {
         handler: () => {
           passes += 1;
           if (passes === 1) {
-            applyLoggedThreadLifecycleEvent(harness.deps, {
-              event: { type: "run.started" },
+            moveThreadStatus(harness.deps, {
+              move: "run.started",
               threadId: thread.id,
             });
             seedTurnStarted(harness.deps, {
@@ -363,8 +364,8 @@ describe("thread status races under a send", () => {
             });
           }
           if (passes === 2) {
-            applyLoggedThreadLifecycleEvent(harness.deps, {
-              event: { type: "run.succeeded" },
+            moveThreadStatus(harness.deps, {
+              move: "run.succeeded",
               threadId: thread.id,
             });
           }
@@ -1177,6 +1178,119 @@ describe("message.dispatch grouped authors", () => {
 });
 
 describe("message.dispatch hooks on the queue drain", () => {
+  it("keeps a plugin's submitted message held by that plugin while an earlier plugin also waits", async () => {
+    await withTestHarness(async (harness) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const { thread } = seedRunnableThread(harness, {
+        hostId: "host-wait-ownership",
+        status: "idle",
+      });
+      let limiterFull = true;
+      const registry = emptyRegistry();
+      registry["message.dispatch"].push(
+        {
+          pluginId: "limiter",
+          handler: () =>
+            limiterFull
+              ? ({ action: "wait", reason: "Capacity" } as const)
+              : ({ action: "proceed" } as const),
+        },
+        {
+          pluginId: "drafts",
+          handler: (context) => {
+            const heldBy = context.queuedMessages[0]?.waitingOn;
+            const ownsMessage =
+              context.experimental_submission?.pluginId === "drafts" ||
+              (heldBy?.kind === "plugin" && heldBy.pluginId === "drafts");
+            return ownsMessage
+              ? ({ action: "wait", reason: "Draft" } as const)
+              : ({ action: "proceed" } as const);
+          },
+        },
+      );
+      installHooks(registry);
+      const turnsBefore = turnRequests(harness, thread.id).length;
+
+      await acceptThreadSendRequest(harness.deps, {
+        payload: {
+          input: textInput("unfinished draft"),
+          mode: "auto",
+          pluginSubmission: { pluginId: "drafts", data: {} },
+        },
+        thread,
+      });
+      const queued = onlyQueuedRow(harness, thread.id);
+      expect(queued.waitingOn).toEqual({
+        kind: "plugin",
+        pluginId: "drafts",
+        reason: "Draft (also waiting on limiter: Capacity)",
+      });
+      expect(
+        listQueuedThreadMessagesForApi(harness.db, {
+          waitHolder: "plugin:drafts",
+        }).map((row) => row.id),
+      ).toEqual([queued.id]);
+
+      vi.advanceTimersByTime(1_001);
+      await runQueuedMessageDispatch(harness.deps, { kind: "plugin-recheck" });
+      expect(onlyQueuedRow(harness, thread.id).waitingOn).toEqual(
+        queued.waitingOn,
+      );
+
+      limiterFull = false;
+      vi.advanceTimersByTime(1_001);
+      await runQueuedMessageDispatch(harness.deps, { kind: "plugin-recheck" });
+      expect(onlyQueuedRow(harness, thread.id).waitingOn).toEqual({
+        kind: "plugin",
+        pluginId: "drafts",
+        reason: "Draft",
+      });
+      expect(turnRequests(harness, thread.id)).toHaveLength(turnsBefore);
+    });
+  });
+
+  it("hands a held row to the next waiting plugin when its holder stops waiting", async () => {
+    await withTestHarness(async (harness) => {
+      const { thread } = seedRunnableThread(harness, {
+        hostId: "host-wait-handoff",
+        status: "idle",
+      });
+      const registry = emptyRegistry();
+      registry["message.dispatch"].push(
+        {
+          pluginId: "limiter",
+          handler: () => ({ action: "wait", reason: "Capacity" }) as const,
+        },
+        {
+          pluginId: "drafts",
+          handler: () => ({ action: "proceed" }) as const,
+        },
+      );
+      installHooks(registry);
+      createQueuedThreadMessage(harness.db, harness.deps.hub, {
+        threadId: thread.id,
+        content: textInput("released draft"),
+        senderThreadId: null,
+        model: "test-model",
+        reasoningLevel: "medium",
+        permissionMode: "auto",
+        serviceTier: "default",
+        payload: { kind: "inline" },
+        waitingOn: { kind: "plugin", pluginId: "drafts", reason: "Draft" },
+        sendAt: null,
+        systemNotice: null,
+      });
+
+      await runQueuedMessageDispatch(harness.deps, { kind: "plugin-recheck" });
+
+      expect(onlyQueuedRow(harness, thread.id).waitingOn).toEqual({
+        kind: "plugin",
+        pluginId: "limiter",
+        reason: "Capacity",
+      });
+    });
+  });
+
   it("uses the durable plugin wait after submission data expires", async () => {
     await withTestHarness(async (harness) => {
       const seen: unknown[] = [];
@@ -1287,8 +1401,8 @@ describe("message.dispatch hooks on the queue drain", () => {
       });
       await entered.promise;
       try {
-        applyLoggedThreadLifecycleEvent(harness.deps, {
-          event: { type: "run.started" },
+        moveThreadStatus(harness.deps, {
+          move: "run.started",
           threadId: thread.id,
         });
         seedTurnStarted(harness.deps, {

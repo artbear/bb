@@ -263,6 +263,7 @@ export interface ExperimentalFakeHostRpcCall {
   input: unknown;
   hostId: string;
   signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 /** Everything the plugin registered, exposed raw for assertions. */
@@ -343,9 +344,17 @@ export interface FakePluginInspectionState {
   readonly pluginId: string;
   /** Every `bb.log` line, in order. */
   readonly logEntries: FakeLogEntry[];
-  /** Every `bb.realtime.publish`, payload normalized like the wire. */
+  /**
+   * Call `listener` on every `bb.rpc.experimental_invalidate` and
+   * `experimental_invalidateAll`; returns the unsubscribe function.
+   */
   experimental_onRpcInvalidation(listener: () => void): () => void;
+  /**
+   * The tags of every `bb.rpc.experimental_invalidate`, in order; `null`
+   * records an `experimental_invalidateAll`.
+   */
   readonly experimental_rpcInvalidations: (readonly string[] | null)[];
+  /** Every `bb.realtime.publish`, payload normalized like the wire. */
   readonly realtimeSignals: FakeRealtimeSignal[];
   /** Every `bb.status.needsConfiguration` message, in order. */
   readonly needsConfigurationMessages: string[];
@@ -1368,6 +1377,9 @@ function createFakePluginHostInternal(
             ...(callOptions.signal === undefined
               ? {}
               : { signal: callOptions.signal }),
+            ...(callOptions.timeoutMs === undefined
+              ? {}
+              : { timeoutMs: callOptions.timeoutMs }),
           };
           hostRpcCalls.push(call);
           if (options.experimental_callHostRpc === undefined) {

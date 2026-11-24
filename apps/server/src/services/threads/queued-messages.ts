@@ -580,7 +580,6 @@ export async function sendQueuedMessage(
   deps: LoggedPendingInteractionWorkSessionDeps,
   args: SendQueuedMessageArgs,
 ): Promise<ThreadQueuedMessage> {
-  const sendNow = args.claimPolicy.kind === "explicit-send";
   const queuedMessages = claimQueuedThreadMessageForSend(deps, args);
   if (queuedMessages.length === 0) {
     const existing = getQueuedThreadMessage(deps.db, args.queuedMessageId);
@@ -588,6 +587,24 @@ export async function sendQueuedMessage(
       throw new ApiError(404, "invalid_request", "Queued message not found");
     return toThreadQueuedMessage(existing);
   }
+  try {
+    return await sendClaimedQueuedMessageGroup(deps, args, queuedMessages);
+  } finally {
+    if (getThread(deps.db, args.threadId)?.status === "idle") {
+      requestQueuedMessageDispatch(deps, {
+        kind: "thread-ready",
+        threadId: args.threadId,
+      });
+    }
+  }
+}
+
+async function sendClaimedQueuedMessageGroup(
+  deps: LoggedPendingInteractionWorkSessionDeps,
+  args: SendQueuedMessageArgs,
+  queuedMessages: ClaimedQueuedMessage[],
+): Promise<ThreadQueuedMessage> {
+  const sendNow = args.claimPolicy.kind === "explicit-send";
   const thread = getThread(deps.db, args.threadId);
   if (
     thread &&
@@ -714,7 +731,25 @@ export async function sendNextQueuedMessageIfPresent(
     }
     throw error;
   }
+  if (isHeldByPluginOnIdleThread(deps, nextQueuedMessages[0]!)) {
+    requestQueuedMessageDispatch(deps, {
+      kind: "thread-ready",
+      threadId: args.threadId,
+    });
+  }
   return true;
+}
+
+function isHeldByPluginOnIdleThread(
+  deps: Pick<LoggedPendingInteractionWorkSessionDeps, "db">,
+  lead: ClaimedQueuedMessage,
+): boolean {
+  const row = getQueuedThreadMessage(deps.db, lead.id);
+  return (
+    row !== null &&
+    parseStoredQueuedThreadMessageWaitingOn(row)?.kind === "plugin" &&
+    getThread(deps.db, row.threadId)?.status === "idle"
+  );
 }
 
 export function releaseStaleQueuedMessageDispatchClaims(

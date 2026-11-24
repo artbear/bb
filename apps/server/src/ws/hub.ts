@@ -262,6 +262,13 @@ export class HostOnlineRpcUnavailableError extends Error {
   }
 }
 
+export class HostOnlineRpcConnectionLostError extends HostOnlineRpcUnavailableError {
+  constructor() {
+    super();
+    this.name = "HostOnlineRpcConnectionLostError";
+  }
+}
+
 export class NotificationHub implements DbNotifier {
   private readonly clientKeysBySocket = new Map<
     HubSocket,
@@ -348,6 +355,10 @@ export class NotificationHub implements DbNotifier {
       pluginId,
       tags: tags === null ? null : [...tags],
     });
+  }
+
+  hasClients(): boolean {
+    return this.clientKeysBySocket.size > 0;
   }
 
   registerClient(socket: HubSocket): void {
@@ -807,9 +818,16 @@ export class NotificationHub implements DbNotifier {
     }
   }
 
+  getDaemonSessionSocket(sessionId: string): HubSocket | null {
+    return this.daemonSessions.get(sessionId)?.socket ?? null;
+  }
+
   takeSilentDaemonSessionIds(maxQuietChecks: number): string[] {
     const silentSessionIds: string[] = [];
     for (const [sessionId, entry] of this.daemonSessions) {
+      if (this.pendingDaemonDisconnects.has(sessionId)) {
+        continue;
+      }
       if (entry.heardSinceLivenessCheck) {
         entry.heardSinceLivenessCheck = false;
         entry.quietLivenessChecks = 0;
@@ -1242,7 +1260,7 @@ export class NotificationHub implements DbNotifier {
         continue;
       }
       this.deleteHostOnlineRpcWaiter(requestId, waiter);
-      waiter.reject(new HostOnlineRpcUnavailableError());
+      waiter.reject(new HostOnlineRpcConnectionLostError());
     }
   }
 

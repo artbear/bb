@@ -447,7 +447,7 @@ as the first argument drives a dev client through Metro instead.
   Servers offers "Sign in again" from the long-press menu for connect
   profiles and shows a mode pill (`bb connect` / `direct`) plus `@handle`.
   "Remove" only forgets the profile locally: the phone stays listed under
-  Machines in the getbb.app dashboard until revoked there (the copy says so).
+  Devices in the getbb.app dashboard until removed there (the copy says so).
 - Stub for e2e (`tests/integration/mobile-e2e/connect-stub.ts`,
   `pnpm --filter @bb/integration-tests e2e:mobile-connect-stub`): plays the
   apex and the gate on one TLS port (`https://localhost:42998` /
@@ -524,7 +524,7 @@ iOS keeps its existing APNs registration behavior.
   when no hint matches. The shell accepts a bridge `badge` message
   (`useShellBridge` → `updateAppBadgeCount`), and `AppBadgeSync` writes that
   count on background; the web app does not send it yet.
-- Read elsewhere (`dismissReadNotifications` experiment): once a thread the
+- Read elsewhere: once a thread the
   server notified about is read on any client, the server sends each device a
   silent push (`_contentAvailable` on iOS, a data-only message on Android;
   data `{"kind":"dismiss","threadId":"…"}`).

@@ -190,38 +190,43 @@ describe("bb updates command output", () => {
   });
 
   it("bb updates apply runs each available provider update", async () => {
-    const install = vi.fn(
-      async () =>
-        new Response(
-          [
-            JSON.stringify({
-              type: "started",
-              provider: "codex",
-              actionKind: "update",
-              command: "codex update",
-            }),
-            JSON.stringify({
-              type: "completed",
-              provider: "codex",
-              success: true,
-              exitCode: 0,
-              signal: null,
-            }),
-          ].join("\n"),
-          { status: 200 },
-        ),
-    );
+    const job = {
+      id: "job_1",
+      hostId: hosts[0].id,
+      provider: "codex",
+      actionKind: "update",
+      startedAt: 1,
+    };
+    const start = vi.fn(async () => ({ job: { ...job, state: "running" } }));
+    const get = vi.fn(async () => ({
+      job: {
+        ...job,
+        state: "completed",
+        finishedAt: 2,
+        events: [
+          { type: "started", provider: "codex", command: "codex update" },
+          {
+            type: "completed",
+            provider: "codex",
+            success: true,
+            exitCode: 0,
+            signal: null,
+          },
+        ],
+      },
+    }));
     stubServerApi({
       "v1.hosts.$get": vi.fn(async () => hosts),
       "v1.hosts.:id.provider-clis.status.$get": vi.fn(async () =>
         providerStatus({ codexNeedsUpdate: true }),
       ),
-      "v1.hosts.:id.provider-clis.install.$post": install,
+      "v1.hosts.:id.provider-clis.install-jobs.$post": start,
+      "v1.hosts.:id.provider-clis.install-jobs.:jobId.$get": get,
     });
 
     await runCommand(["updates", "apply"], register);
 
-    expect(install).toHaveBeenCalledOnce();
+    expect(start).toHaveBeenCalledOnce();
     expect(collectLogPayloads(vi.mocked(console.log))).toEqual([
       "Codex on workstation: running update…",
       "Codex on workstation: done",
@@ -279,23 +284,12 @@ describe("bb updates command output", () => {
   });
 });
 
-const UPDATE_WHEN_IDLE_OFF =
-  'Updating when idle is off. Turn on the "Update when idle" experiment in Settings → Experiments, or run bb settings experiment updateWhenIdle true, then try again.';
-
-function systemConfig(experiments: {
-  resumeThreadsAfterRestart?: boolean;
-  updateWhenIdle: boolean;
-}) {
+function systemConfig(experiments: { resumeThreadsAfterRestart?: boolean }) {
   return vi.fn(async () => ({
-    experiments: { resumeThreadsAfterRestart: false, ...experiments },
+    generalSettings: {
+      resumeThreadsAfterRestart: experiments.resumeThreadsAfterRestart ?? false,
+    },
   }));
-}
-
-function errorResponse(status: number, body: object): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
 }
 
 function appUpdateStatus(
@@ -446,7 +440,7 @@ describe("bb updates app command output", () => {
     stubServerApi({
       "v1.system.app-update.$get": vi.fn(async () => statuses.shift()),
       "v1.system.app-update.apply.$post": apply,
-      "v1.system.config.$get": systemConfig({ updateWhenIdle: false }),
+      "v1.system.config.$get": systemConfig({}),
     });
     readlineMocks.question.mockResolvedValue("y");
 
@@ -514,7 +508,7 @@ describe("bb updates app command output", () => {
         appUpdateStatus({ runningThreadCount: 1 }),
       ),
       "v1.system.app-update.apply.$post": apply,
-      "v1.system.config.$get": systemConfig({ updateWhenIdle: true }),
+      "v1.system.config.$get": systemConfig({}),
     });
 
     await expect(
@@ -539,7 +533,6 @@ describe("bb updates app command output", () => {
       "v1.system.app-update.apply.$post": apply,
       "v1.system.config.$get": systemConfig({
         resumeThreadsAfterRestart: true,
-        updateWhenIdle: true,
       }),
     });
 
@@ -551,56 +544,6 @@ describe("bb updates app command output", () => {
       "Error: 2 threads are running. Updating restarts bb, and they resume after the update. Re-run with --when-idle to update once they finish, or --yes to update now.",
     );
   });
-
-  it("bb updates app apply does not suggest --when-idle while its experiment is off", async () => {
-    Object.defineProperty(process.stdin, "isTTY", {
-      value: false,
-      configurable: true,
-    });
-    const apply = vi.fn(async () => appUpdateStatus());
-    stubServerApi({
-      "v1.system.app-update.$get": vi.fn(async () =>
-        appUpdateStatus({ runningThreadCount: 1 }),
-      ),
-      "v1.system.app-update.apply.$post": apply,
-      "v1.system.config.$get": systemConfig({ updateWhenIdle: false }),
-    });
-
-    await expect(
-      runCommand(["updates", "app", "apply"], register),
-    ).rejects.toThrow("process.exit:1");
-    expect(apply).not.toHaveBeenCalled();
-    expect(vi.mocked(console.error)).toHaveBeenCalledWith(
-      "Error: Refusing destructive action without an interactive terminal. Re-run with --yes to confirm.",
-    );
-  });
-
-  it.each([
-    [["apply", "--when-idle"], "v1.system.app-update.schedule.$post"],
-    [["cancel"], "v1.system.app-update.schedule.cancel.$post"],
-  ])(
-    "bb updates app %j names the experiment while it is off",
-    async (args, route) => {
-      stubServerApi({
-        "v1.system.app-update.$get": vi.fn(async () =>
-          appUpdateStatus({ runningThreadCount: 1 }),
-        ),
-        [route]: vi.fn(async () =>
-          errorResponse(403, {
-            code: "update_when_idle_experiment_disabled",
-            message: UPDATE_WHEN_IDLE_OFF,
-          }),
-        ),
-      });
-
-      await expect(
-        runCommand(["updates", "app", ...args], register),
-      ).rejects.toThrow("process.exit:1");
-      expect(vi.mocked(console.error)).toHaveBeenCalledWith(
-        `Error: ${UPDATE_WHEN_IDLE_OFF}`,
-      );
-    },
-  );
 
   it("bb updates app apply --when-idle schedules the update and returns while threads run", async () => {
     const apply = vi.fn(async () => appUpdateStatus());

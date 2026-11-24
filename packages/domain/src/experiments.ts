@@ -1,18 +1,16 @@
 import { z } from "zod";
 
 export const experimentKeys = [
+  "agentCpuPriority",
   "compactExpiredCache",
-  "dismissReadNotifications",
-  "narrowPluginCss",
+  "keyedPluginCss",
   "serverMove",
   "performanceDiagnostics",
   "pluginUpdates",
-  "resumeThreadsAfterRestart",
+  "resumeDaemonSessions",
   "skipFocusedThreadNotifications",
   "threadContextCard",
-  "threadRowMetadata",
-  "timelinePush",
-  "updateWhenIdle",
+  "walCheckpointWorker",
 ] as const;
 export const experimentKeySchema = z.enum(experimentKeys);
 export type ExperimentKey = z.infer<typeof experimentKeySchema>;
@@ -27,31 +25,27 @@ export const experimentUpdatesSchema = z.partialRecord(
 export type ExperimentUpdates = z.infer<typeof experimentUpdatesSchema>;
 
 export const defaultExperiments: Experiments = {
+  agentCpuPriority: false,
   compactExpiredCache: false,
-  dismissReadNotifications: false,
-  narrowPluginCss: false,
+  keyedPluginCss: false,
   serverMove: false,
   performanceDiagnostics: false,
   pluginUpdates: false,
-  resumeThreadsAfterRestart: false,
+  resumeDaemonSessions: false,
   skipFocusedThreadNotifications: false,
   threadContextCard: false,
-  threadRowMetadata: false,
-  timelinePush: false,
-  updateWhenIdle: false,
+  walCheckpointWorker: false,
 };
 
 export const earlyAdopterExperiments: Experiments = {
+  agentCpuPriority: true,
   compactExpiredCache: true,
-  dismissReadNotifications: false,
-  narrowPluginCss: false,
+  keyedPluginCss: true,
   serverMove: false,
   performanceDiagnostics: false,
   pluginUpdates: true,
-  resumeThreadsAfterRestart: false,
+  resumeDaemonSessions: true,
   skipFocusedThreadNotifications: true,
-  threadContextCard: false,
-  threadRowMetadata: true,
-  timelinePush: true,
-  updateWhenIdle: true,
+  threadContextCard: true,
+  walCheckpointWorker: true,
 };

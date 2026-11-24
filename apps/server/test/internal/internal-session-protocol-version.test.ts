@@ -6,7 +6,13 @@ import {
 import type { Hono } from "hono";
 import { hc } from "hono/client";
 import { describe, expect, it } from "vitest";
-import { getHost, setAppSettings, updateHost, upsertHost } from "@bb/db";
+import {
+  getHost,
+  setAppSettings,
+  setExperiments,
+  updateHost,
+  upsertHost,
+} from "@bb/db";
 import { defaultAppSettings } from "@bb/domain";
 import {
   createTestDaemonHostKey,
@@ -49,6 +55,7 @@ describe("internal session protocol version", () => {
               protocolVersion: HOST_DAEMON_PROTOCOL_VERSION,
               activeThreads: [],
               openThreadWork: [],
+              turnCommandThreadIds: [],
               undeliveredEventThreadIds: [],
               loadedEnvironments: [],
             }),
@@ -78,6 +85,7 @@ describe("internal session protocol version", () => {
         ...defaultAppSettings,
         idleProviderSessionTimeoutMinutes: 5,
       });
+      setExperiments(server.db, { agentCpuPriority: true });
 
       const response = await fetch(`${server.baseUrl}/internal/session/open`, {
         method: "POST",
@@ -96,6 +104,7 @@ describe("internal session protocol version", () => {
           protocolVersion: HOST_DAEMON_PROTOCOL_VERSION,
           activeThreads: [],
           openThreadWork: [],
+          turnCommandThreadIds: [],
           undeliveredEventThreadIds: [],
           loadedEnvironments: [],
         }),
@@ -104,6 +113,7 @@ describe("internal session protocol version", () => {
       expect(response.status).toBe(201);
       expect(await response.json()).toMatchObject({
         idleProviderSessionTimeoutMinutes: 5,
+        agentCpuPriority: true,
       });
     } finally {
       await server.close();
@@ -142,6 +152,7 @@ describe("internal session protocol version", () => {
             protocolVersion: 188,
             activeThreads: [],
             openThreadWork: [],
+            turnCommandThreadIds: [],
             undeliveredEventThreadIds: [],
             loadedEnvironments: [],
           }),
@@ -179,6 +190,7 @@ describe("internal session protocol version", () => {
             protocolVersion: preLocalApiPortProtocolVersion,
             activeThreads: [],
             openThreadWork: [],
+            turnCommandThreadIds: [],
             undeliveredEventThreadIds: [],
             loadedEnvironments: [],
           }),
@@ -209,6 +221,7 @@ describe("internal session protocol version", () => {
           protocolVersion: staleProtocolVersion,
           activeThreads: [],
           openThreadWork: [],
+          turnCommandThreadIds: [],
           undeliveredEventThreadIds: [],
           loadedEnvironments: [],
         },
@@ -247,6 +260,7 @@ describe("internal session protocol version", () => {
           protocolVersion: staleProtocolVersion,
           activeThreads: [],
           openThreadWork: [],
+          turnCommandThreadIds: [],
           undeliveredEventThreadIds: [],
           loadedEnvironments: [],
         },
@@ -267,6 +281,7 @@ describe("internal session protocol version", () => {
           protocolVersion: staleProtocolVersion,
           activeThreads: [],
           openThreadWork: [],
+          turnCommandThreadIds: [],
           undeliveredEventThreadIds: [],
           loadedEnvironments: [],
         },
@@ -287,6 +302,7 @@ describe("internal session protocol version", () => {
           protocolVersion: HOST_DAEMON_PROTOCOL_VERSION,
           activeThreads: [],
           openThreadWork: [],
+          turnCommandThreadIds: [],
           undeliveredEventThreadIds: [],
           loadedEnvironments: [],
         },

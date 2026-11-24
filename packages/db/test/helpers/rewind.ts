@@ -134,6 +134,26 @@ export function dropThreadStatusChangedAtColumn(db: DbConnection): void {
   }
 }
 
+export function dropThreadRunStateTables(db: DbConnection): void {
+  db.$client.exec(
+    "DROP TABLE IF EXISTS thread_turn_requests; DROP TABLE IF EXISTS thread_run_states;",
+  );
+}
+
+export function dropPluginFailureLabelColumns(db: DbConnection): void {
+  for (const [table, column] of [
+    ["plugins", "last_failure_label"],
+    ["plugin_state_snapshots", "rollback_candidate_label"],
+  ] as const) {
+    const columns = db.$client
+      .prepare<[], { name: string }>(`PRAGMA table_info(${table})`)
+      .all();
+    if (columns.some((existing) => existing.name === column)) {
+      db.$client.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+    }
+  }
+}
+
 export function restoreDiffViewedFilesTable(db: DbConnection): void {
   db.$client.exec(`
     CREATE TABLE IF NOT EXISTS diff_viewed_files (

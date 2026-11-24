@@ -9,7 +9,7 @@ import {
 import {
   deleteClaimedQueuedThreadMessageBatchInTransaction,
   getEnvironment,
-  getExperiments,
+  getAppSettings,
   hasLiveQueuedRetry,
   isAppUpdateSendHoldSet,
   type EnvironmentRow,
@@ -64,7 +64,7 @@ import {
   settleQueueRowDispatched,
   type QueuedDispatchMessage,
 } from "./queue-waits.js";
-import { applyLoggedThreadLifecycleEventInTransaction } from "./lifecycle-outcome.js";
+import { runThreadLifecycleInTransaction } from "./lifecycle/run.js";
 import { buildExecutionOptions } from "./thread-commands.js";
 import {
   getActiveTurnId,
@@ -78,6 +78,7 @@ import {
   scheduleThreadProvisioningAdvance,
 } from "./thread-provisioning.js";
 import {
+  FORK_HISTORY_COPY_MARK,
   threadForkDescriptorSchema,
   threadProvisionEnvironmentIntentSchema,
 } from "./thread-startup-store.js";
@@ -110,6 +111,7 @@ import { markTurnTraceSpan } from "../system/turn-trace.js";
 export const pendingThreadStartContextSchema = z.object({
   environmentIntent: threadProvisionEnvironmentIntentSchema,
   fork: threadForkDescriptorSchema.nullable(),
+  historyCopy: z.literal(FORK_HISTORY_COPY_MARK).optional(),
   /** Provider-facing input when it differs from the persisted start seed. */
   providerInput: z.array(promptInputSchema).optional(),
   startedOnBehalfOf: startedOnBehalfOfSchema.nullable(),
@@ -276,7 +278,7 @@ export interface DispatchAttemptArgs {
 }
 
 export type DispatchAttemptOutcome =
-  | { kind: "dispatched" }
+  | { kind: "dispatched"; messageSequence: number | null }
   | { kind: "queued"; entry: ThreadQueuedMessage };
 
 /**
@@ -340,7 +342,7 @@ async function runOperationDispatch(
   args: DispatchAttemptArgs,
   source: Extract<DispatchAttemptSource, { kind: "operation" }>,
 ): Promise<DispatchAttemptOutcome> {
-  await sendThreadMessage(deps, {
+  const messageSequence = await sendThreadMessage(deps, {
     environment: source.environment,
     originPluginId: args.originPluginId,
     payload: args.payload,
@@ -353,7 +355,7 @@ async function runOperationDispatch(
       ? { historyReplacement: source.historyReplacement }
       : {}),
   });
-  return { kind: "dispatched" };
+  return { kind: "dispatched", messageSequence };
 }
 
 interface DispatchAttemptRun {
@@ -376,6 +378,16 @@ async function runDispatchAttempt(
   // recover from, rather than the 409 that used to make a stop a dead end for
   // everything the user lined up behind it.
   ensureThreadIsWritable(thread, true);
+  if (
+    thread.status === "pending" &&
+    readPendingThreadStartContext(deps, thread.id)?.historyCopy !== undefined
+  ) {
+    throw new ApiError(
+      409,
+      "fork_history_copying",
+      "This fork is still copying its history; send the message again once it finishes",
+    );
+  }
   assertThreadHostAcceptsWork(deps.db, thread);
   if (
     payload.mode === "queue-if-active" &&
@@ -462,9 +474,7 @@ async function runDispatchAttempt(
     deliveryMode: run.deliveryMode,
   };
 
-  const retriesGoFirst = getExperiments(
-    deps.db,
-  ).resumeThreadsAfterRestart;
+  const retriesGoFirst = getAppSettings(deps.db).resumeThreadsAfterRestart;
   const waitOn = (
     waitingOn: QueuedMessageWaitingOn,
     sendAt: number | null,
@@ -482,7 +492,7 @@ async function runDispatchAttempt(
       // The row vanished under a re-queue (the user deleted it). Nothing is
       // waiting and nothing dispatched; report it as dispatched-away so the
       // drain stops rather than looping on a row that no longer exists.
-      return { kind: "dispatched" };
+      return { kind: "dispatched", messageSequence: null };
     }
     return { kind: "queued", entry };
   };
@@ -690,7 +700,7 @@ async function runDispatchAttempt(
     });
     if (outcome.kind === "wait") {
       if (claimed !== null) {
-        noteDispatchRequeued(thread.id);
+        noteDispatchRequeued(thread.id, outcome.waiter.pluginId);
       }
       return waitOn(
         {
@@ -730,22 +740,17 @@ async function runDispatchAttempt(
       // for a thread that is gone. Reporting a dispatch here would tell the
       // caller their message went when it went nowhere.
       const current = getThread(deps.db, thread.id);
-      return reattemptDispatchForThreadChange(
-        deps,
-        args,
-        current,
-        run,
-        waitOn,
-      );
+      return reattemptDispatchForThreadChange(deps, args, current, run, waitOn);
     }
     await launchAdmittedThread(deps, admission);
-    return { kind: "dispatched" };
+    return { kind: "dispatched", messageSequence: admission.messageSequence };
   }
 
   markTurnTraceSpan("dispatch.checkpoint.done");
   const environment = await requireThreadCommandEnvironment(deps, { thread });
+  let messageSequence: number | null;
   try {
-    await sendThreadMessage(deps, {
+    messageSequence = await sendThreadMessage(deps, {
       environment,
       originPluginId: args.originPluginId,
       payload: resolvedPayload,
@@ -781,7 +786,7 @@ async function runDispatchAttempt(
   if (claimed !== null) {
     settleQueueRowDispatched({ row: claimed[0]! });
   }
-  return { kind: "dispatched" };
+  return { kind: "dispatched", messageSequence };
 }
 
 class DispatchThreadStatusChangedError extends Error {}
@@ -861,6 +866,7 @@ interface AdmitPendingThreadArgs {
 
 interface PendingThreadAdmission {
   claimedRow: ClaimedQueuedThreadMessageRow | null;
+  messageSequence: number;
   startingThread: Thread;
 }
 
@@ -911,9 +917,9 @@ async function admitPendingThread(
     threadId: args.thread.id,
   });
   const claimedRow = args.claimed?.[0] ?? null;
-  let startingThread: Thread;
+  let admitted: { messageSequence: number; startingThread: Thread };
   try {
-    startingThread = deps.db.transaction(
+    admitted = deps.db.transaction(
       (tx) => {
         // The row is consumed and the thread flipped in ONE transaction: a
         // flip that loses to a concurrent attempt rolls the consumption back,
@@ -926,16 +932,17 @@ async function admitPendingThread(
             args.respectManualStopPause,
           )({ tx });
         }
-        const prepared = applyLoggedThreadLifecycleEventInTransaction(
-          { db: tx, logger: deps.logger },
-          { threadId: args.thread.id, event: { type: "run.preparing" } },
+        const prepared = runThreadLifecycleInTransaction(
+          { db: tx, hub: deps.hub, logger: deps.logger },
+          args.thread.id,
+          { type: "provisioning.started" },
         );
-        if (!prepared.applied) {
+        if (prepared.refusal !== null) {
           throw new PendingThreadAdmissionLost();
         }
         const starting = getThread(tx, args.thread.id);
         if (starting === null) throw new PendingThreadAdmissionLost();
-        requestThreadProvision(deps, {
+        const { messageSequence } = requestThreadProvision(deps, {
           author: args.author,
           thread: starting,
           environmentIntent: startContext.environmentIntent,
@@ -950,7 +957,7 @@ async function admitPendingThread(
           startedOnBehalfOf: startContext.startedOnBehalfOf,
           titleProvided: startContext.titleProvided,
         });
-        return starting;
+        return { messageSequence, startingThread: starting };
       },
       { behavior: "immediate" },
     );
@@ -966,6 +973,7 @@ async function admitPendingThread(
     );
     return null;
   }
+  const { messageSequence, startingThread } = admitted;
   deps.hub.notifyThread(
     startingThread.id,
     ["status-changed"],
@@ -973,6 +981,7 @@ async function admitPendingThread(
   );
   return {
     claimedRow,
+    messageSequence,
     startingThread,
   };
 }

@@ -46,6 +46,8 @@ import {
   type PreparedProviderCommandDispatch,
   type ProviderRuntimeEvent,
   experimental_defineProviderBridge,
+  experimental_compareVersions as compareVersions,
+  experimental_versionFrom as versionFrom,
   type ProviderRecoveryHint,
 } from "@get-bb/plugin-sdk/provider-bridge";
 import { z } from "zod";
@@ -1010,14 +1012,17 @@ function spawnChildConnection(callbacks: {
 }
 
 const ignoredChildResultSchema = z.unknown();
+const initializeChildResultSchema = z.object({
+  userAgent: z.string().optional(),
+});
 
 async function initializeChild(
   connection: CodexAppServerConnection,
-): Promise<void> {
-  await connection.request({
+): Promise<boolean> {
+  const result = await connection.request({
     method: "initialize",
     params: CODEX_INITIALIZE_PARAMS,
-    resultSchema: ignoredChildResultSchema,
+    resultSchema: initializeChildResultSchema,
     timeoutMs: CHILD_REQUEST_TIMEOUT_MS,
   });
   if (configuredSkillExtraRoots !== null) {
@@ -1028,6 +1033,10 @@ async function initializeChild(
       timeoutMs: CHILD_REQUEST_TIMEOUT_MS,
     });
   }
+  const version = versionFrom(
+    result.userAgent?.match(/^[^/\s]+\/(\S+)/)?.[1] ?? null,
+  );
+  return version !== null && compareVersions(version, "0.145.0") >= 0;
 }
 
 const codexThreadIdentityResultSchema = z
@@ -1328,9 +1337,10 @@ async function constructThreadSession(
   session.connection = connection;
 
   try {
-    await initializeChild(connection);
+    const supportsAgentsEnabled = await initializeChild(connection);
 
     const preparedGitRoots = translator.prepareWorkspaceWriteGitRoots({
+      supportsAgentsEnabled,
       command: {
         threadId: args.threadId,
         cwd: args.cwd,
@@ -2128,6 +2138,9 @@ async function handleTurnStart(
   }
 }
 
+const CODEX_STALE_STEER_MESSAGE_PATTERN =
+  /^(?:no active turn to steer|expected active turn id `[^`]+` but found `[^`]+`)$/;
+
 async function handleTurnSteer(
   id: string | number,
   params: TurnSteerParamsShape,
@@ -2160,7 +2173,8 @@ async function handleTurnSteer(
       !isDeepStrictEqual(session.turnPermissionSettings, permissionSettings)
     ) {
       if (!session.openCodexTurnIds.has(params.expectedTurnId)) {
-        throw new Error("The turn to steer is no longer active");
+        rejectStaleSteer(id, "The turn to steer is no longer active");
+        return;
       }
       const failure = await interruptCodexTurn(
         session,
@@ -2199,8 +2213,22 @@ async function handleTurnSteer(
     ]);
     sendResult(id, { threadId: params.threadId });
   } catch (error) {
+    if (
+      error instanceof CodexAppServerRpcError &&
+      error.code === -32600 &&
+      CODEX_STALE_STEER_MESSAGE_PATTERN.test(error.message)
+    ) {
+      rejectStaleSteer(id, error.message);
+      return;
+    }
     rejectWithCodexError(id, error);
   }
+}
+
+function rejectStaleSteer(id: string | number, message: string): void {
+  sendError(id, BRIDGE_JSON_RPC_ERRORS.NO_ACTIVE_TURN, message, {
+    recovery: { kind: "staleTurn", message, retryable: false },
+  });
 }
 
 async function handleThreadStop(
@@ -2237,7 +2265,13 @@ async function handleThreadStop(
     session.codexThreadId,
     params.activeTurnId,
   );
-  if (interruptFailure !== null) {
+  const nativeStartTimedOut =
+    interruptFailure instanceof CodexAppServerRpcError &&
+    interruptFailure.code === -32600 &&
+    interruptFailure.message === "no active turn to interrupt" &&
+    session.responseOpenedTurns.get(params.activeTurnId)?.nativeStarted ===
+      false;
+  if (interruptFailure !== null && !nativeStartTimedOut) {
     sendError(
       id,
       BRIDGE_JSON_RPC_ERRORS.BRIDGE_ERROR,
@@ -2245,11 +2279,13 @@ async function handleThreadStop(
     );
     return;
   }
-  const settled = await waitForCodexTurnSettlement(
-    session,
-    params.activeTurnId,
-    INTERRUPT_SETTLEMENT_TIMEOUT_MS,
-  );
+  const settled =
+    !nativeStartTimedOut &&
+    (await waitForCodexTurnSettlement(
+      session,
+      params.activeTurnId,
+      INTERRUPT_SETTLEMENT_TIMEOUT_MS,
+    ));
   if (!settled) {
     sendThreadDeltas(session, [
       {
@@ -2754,12 +2790,12 @@ export const handleLine = createBridgeLineHandler({ handleParsedMessage });
 function killAllChildren(): void {
   for (const session of sessionsByBbThreadId.values()) {
     session.closing = true;
-    session.connection?.kill();
+    void session.connection?.kill();
     session.connection = null;
   }
   sessionsByBbThreadId.clear();
   for (const connection of maintenanceConnections) {
-    connection.kill();
+    void connection.kill();
   }
   maintenanceConnections.clear();
 }

@@ -1,6 +1,7 @@
 {
   "name": "@get-bb/plugin-sdk",
-  "version": "0.6.132",
+  "version": "0.6.157",
+  "license": "MIT",
   "homepage": "https://github.com/get-bb/bb#readme",
   "bugs": {
     "url": "https://github.com/get-bb/bb/issues"
@@ -161,7 +162,8 @@
     "clean": "rimraf bundled-types dist tsconfig.tsbuildinfo",
     "prepack": "node --max-semi-space-size=128 --max-old-space-size=4096 scripts/build-bundled-dts.mjs && node scripts/build-runtime.mjs",
     "test": "vitest run --config vitest.config.ts",
-    "typecheck": "tsrs --noEmit"
+    "typecheck": "tsrs --noEmit",
+    "lint:type-aware": "oxlint -c ../../.oxlintrc.type-aware.json"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.106.1",
@@ -177,6 +179,7 @@
     "@bb/sdk": "workspace:*",
     "@bb/server-contract": "workspace:*",
     "@bb/skill-index": "workspace:*",
+    "@bb/test-helpers": "workspace:*",
     "@bb/tsconfig": "workspace:*",
     "@testing-library/react": "^16.3.3",
     "@types/better-sqlite3": "^7.6.13",

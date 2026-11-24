@@ -10,6 +10,8 @@ import {
   dropMarketplaceSourceGitSubdirectoryColumn,
   dropThreadParentNotificationsColumn,
   dropQueuedMessageDeliveryColumns,
+  dropPluginFailureLabelColumns,
+  dropThreadRunStateTables,
   dropThreadStatusChangedAtColumn,
   restoreDiffViewedFilesTable,
   dropQueuedMessageEditHeldUntilColumn,
@@ -263,6 +265,14 @@ const threadStatusChangedAtMigrationWhen = (
     readFileSync(resolve(__dirname, "../drizzle/meta/_journal.json"), "utf-8"),
   ) as { entries: { tag: string; when: number }[] }
 ).entries.find((entry) => entry.tag === "0150_thread_status_changed_at")!.when;
+
+const projectSourcesDefaultIndexMigrationWhen = (
+  JSON.parse(
+    readFileSync(resolve(__dirname, "../drizzle/meta/_journal.json"), "utf-8"),
+  ) as { entries: { tag: string; when: number }[] }
+).entries.find(
+  (entry) => entry.tag === "0155_declare_project_sources_default_index",
+)!.when;
 
 function restoreWideExperimentsTable(db: DbConnection): void {
   const columns = db.$client
@@ -748,6 +758,8 @@ function rewindEnvironmentProvisioningMigration(db: DbConnection): void {
   dropThreadParentNotificationsColumn(db);
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
+  dropThreadRunStateTables(db);
+  dropPluginFailureLabelColumns(db);
   db.$client.exec("DROP TRIGGER IF EXISTS threads_lifecycle_owner_insert");
   db.$client.exec("DROP TRIGGER IF EXISTS threads_lifecycle_owner_immutable");
   db.$client.exec("DROP INDEX IF EXISTS threads_lifecycle_owner_idx");
@@ -797,6 +809,8 @@ function dropQueuedMessageAttemptColumns(db: DbConnection): void {
   dropThreadParentNotificationsColumn(db);
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
+  dropThreadRunStateTables(db);
+  dropPluginFailureLabelColumns(db);
   const columns = db.$client
     .prepare<[], TableInfoRow>("PRAGMA table_info(queued_thread_messages)")
     .all();
@@ -878,6 +892,8 @@ function rewindMachineProvidersMigration(db: DbConnection): void {
   dropThreadParentNotificationsColumn(db);
   dropQueuedMessageDeliveryColumns(db);
   dropThreadStatusChangedAtColumn(db);
+  dropThreadRunStateTables(db);
+  dropPluginFailureLabelColumns(db);
   db.$client.exec("DROP TABLE IF EXISTS ui_preference_defaults");
   const queuedDispatchOrigin = db.$client
     .prepare<[], TableInfoRow>("PRAGMA table_info(queued_thread_messages)")
@@ -1780,6 +1796,63 @@ describe("migrate", () => {
     }
   });
 
+  it.each([
+    { name: "opt-in", experiment: 1, existing: null, expected: "true" },
+    { name: "opt-out", experiment: 0, existing: null, expected: "false" },
+    { name: "no experiment", experiment: null, existing: null, expected: null },
+    {
+      name: "existing general setting",
+      experiment: 1,
+      existing: "false",
+      expected: "false",
+    },
+  ])(
+    "migrates restart recovery: $name",
+    ({ experiment, existing, expected }) => {
+      const db = createMigratedConnection();
+      try {
+        if (experiment !== null) {
+          db.$client
+            .prepare(
+              "INSERT INTO system_experiments (key, value, updated_at) VALUES ('resumeThreadsAfterRestart', ?, 1234)",
+            )
+            .run(experiment);
+        }
+        if (existing !== null) {
+          db.$client
+            .prepare(
+              "INSERT INTO app_settings_values (key, value, updated_at) VALUES ('resumeThreadsAfterRestart', ?, 5678)",
+            )
+            .run(existing);
+        }
+        runMigrationFile({
+          db,
+          migrationPath: resolve(
+            __dirname,
+            "..",
+            "drizzle",
+            "0158_resume_threads_general_setting.sql",
+          ),
+        });
+        const row = db.$client
+          .prepare<[], { value: string; updatedAt: number }>(
+            "SELECT value, updated_at AS updatedAt FROM app_settings_values WHERE key = 'resumeThreadsAfterRestart'",
+          )
+          .get();
+        expect(row ?? null).toEqual(
+          expected === null
+            ? null
+            : { value: expected, updatedAt: existing === null ? 1234 : 5678 },
+        );
+        expect(getAppSettings(db).resumeThreadsAfterRestart).toBe(
+          expected === "true",
+        );
+      } finally {
+        closeConnection(db);
+      }
+    },
+  );
+
   it("moves app settings columns into key/value rows without losing values", () => {
     const db = createConnection(":memory:");
 
@@ -1818,6 +1891,7 @@ describe("migrate", () => {
         showDiagnosticEvents: true,
         keepHistoryAfterContextClear: false,
         summarizeShellCommands: true,
+        resumeThreadsAfterRestart: false,
         providerOrder: [],
         defaultProviderId: null,
         providerCompletedTurnDisplay: {},
@@ -2621,6 +2695,8 @@ describe("migrate", () => {
         providerId: "codex",
       });
       dropThreadStatusChangedAtColumn(db);
+      dropThreadRunStateTables(db);
+      dropPluginFailureLabelColumns(db);
       restoreDiffViewedFilesTable(db);
       db.$client
         .prepare<[number, string]>(
@@ -3456,6 +3532,8 @@ describe("migrate", () => {
       dropThreadParentNotificationsColumn(db);
       dropQueuedMessageDeliveryColumns(db);
       dropThreadStatusChangedAtColumn(db);
+      dropThreadRunStateTables(db);
+      dropPluginFailureLabelColumns(db);
       db.$client.prepare("DROP INDEX projects_deleted_idx").run();
       db.$client.prepare("ALTER TABLE projects DROP COLUMN deleted_at").run();
       db.$client.prepare("ALTER TABLE events ADD producer_event_id text").run();
@@ -3854,6 +3932,35 @@ describe("migrate", () => {
       expect(readLatestAppliedMigrationCreatedAt(db)).toBe(latestMigrationWhen);
       expect(readTableNames(db)).not.toContain("event_large_values");
       expectEventLargeValuesInline(db, values);
+    } finally {
+      closeConnection(db);
+    }
+  });
+
+  it("declares the default project source index on a database that already has it", () => {
+    const db = createConnection(":memory:");
+
+    try {
+      migrate(db);
+      db.$client
+        .prepare<DeleteMigrationParameters>(
+          `
+            DELETE FROM __drizzle_migrations
+            WHERE created_at >= ?
+          `,
+        )
+        .run(projectSourcesDefaultIndexMigrationWhen);
+      dropThreadRunStateTables(db);
+      dropPluginFailureLabelColumns(db);
+
+      expect(() => migrate(db)).not.toThrow();
+      expect(
+        db.$client
+          .prepare<[], IndexNameRow>(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'project_sources_default_project_idx'",
+          )
+          .all(),
+      ).toEqual([{ name: "project_sources_default_project_idx" }]);
     } finally {
       closeConnection(db);
     }

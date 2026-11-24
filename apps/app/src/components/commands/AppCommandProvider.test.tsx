@@ -597,14 +597,20 @@ describe("AppCommandProvider", () => {
 
     expect(screen.getByText("released")).toBeDefined();
     fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
-    act(() => vi.advanceTimersByTime(699));
+    act(() => {
+      vi.advanceTimersByTime(699);
+    });
     expect(screen.getByText("released")).toBeDefined();
-    act(() => vi.advanceTimersByTime(1));
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     expect(screen.getByText("held")).toBeDefined();
     fireEvent.keyUp(window, { key: "Control" });
     expect(screen.getByText("released")).toBeDefined();
     fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
-    act(() => vi.advanceTimersByTime(700));
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
     expect(screen.getByText("held")).toBeDefined();
     fireEvent.blur(window);
     expect(screen.getByText("released")).toBeDefined();
@@ -617,13 +623,17 @@ describe("AppCommandProvider", () => {
     renderProvider(<ModifierState />);
 
     fireEvent.keyDown(window, { key: "Meta", metaKey: true });
-    act(() => vi.advanceTimersByTime(700));
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
     expect(screen.getByText("held")).toBeDefined();
     fireEvent.keyUp(window, { key: "Meta" });
     expect(screen.getByText("released")).toBeDefined();
 
     fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
-    act(() => vi.advanceTimersByTime(700));
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
     expect(screen.getByText("held")).toBeDefined();
     fireEvent.keyUp(window, { key: "Control" });
     expect(screen.getByText("released")).toBeDefined();
@@ -641,18 +651,24 @@ describe("AppCommandProvider", () => {
     );
 
     fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
-    act(() => vi.advanceTimersByTime(699));
+    act(() => {
+      vi.advanceTimersByTime(699);
+    });
     fireEvent.keyDown(window, {
       key: "Shift",
       ctrlKey: true,
       shiftKey: true,
     });
-    act(() => vi.advanceTimersByTime(1));
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     expect(screen.getByText("released")).toBeDefined();
 
     fireEvent.keyUp(window, { key: "Control" });
     fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
-    act(() => vi.advanceTimersByTime(700));
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
     expect(screen.getByText("held")).toBeDefined();
     fireEvent.keyDown(window, { key: "1", ctrlKey: true });
     expect(testState.calls).toEqual(["thread"]);
@@ -680,7 +696,9 @@ describe("AppCommandProvider", () => {
     const button = screen.getByRole("button", { name: "Collapse section" });
     button.focus();
     fireEvent.keyDown(button, { key: "Control", ctrlKey: true });
-    act(() => vi.advanceTimersByTime(700));
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
     expect(screen.getByText("held")).toBeDefined();
     fireEvent.keyUp(button, { key: "Control" });
     expect(screen.getByText("released")).toBeDefined();
@@ -697,7 +715,9 @@ describe("AppCommandProvider", () => {
       ctrlKey: true,
       shiftKey: true,
     });
-    act(() => vi.advanceTimersByTime(700));
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
 
     expect(screen.getByText("released")).toBeDefined();
     vi.useRealTimers();
@@ -709,7 +729,9 @@ describe("AppCommandProvider", () => {
     renderProvider(<ModifierState />);
 
     fireEvent.keyDown(window, { key: "Control", ctrlKey: true });
-    act(() => vi.advanceTimersByTime(700));
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
     expect(screen.getByText("released")).toBeDefined();
     vi.useRealTimers();
   });

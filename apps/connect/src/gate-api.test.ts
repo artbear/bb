@@ -6,7 +6,7 @@ import {
   workerNodeBuiltinsPlugin,
 } from "@bb/connect-db-pg/testing";
 import { Miniflare } from "miniflare";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   NEXT_TUNNEL_WRITE_INTERVAL_MS,
   sha256Hex,
@@ -152,6 +152,12 @@ async function seed(target: ServedTestConnectDb): Promise<void> {
     "INSERT INTO server (id, user_id, name, subdomain, credential_hash, created_at) VALUES ('srv-bravo', $1, 'bravo', 'bravo', $2, $3)",
     OWNER,
     await sha256Hex("bbcred_server_bravo"),
+    NOW,
+  );
+  await exec(
+    "INSERT INTO machine (id, user_id, name, subdomain, credential_hash, created_at) VALUES ('mch-unseen', $1, 'unseen', 'unseen', $2, $3)",
+    OWNER,
+    await sha256Hex("bbcm_machine_unseen"),
     NOW,
   );
   await exec(
@@ -369,19 +375,19 @@ describe("POST /api/gate/resolve", () => {
       revoked: false,
       lastSeenAt: expect.any(Number),
     });
-    const machine = (await resolve({ label: "box" })).label as Record<
+    const machine = (await resolve({ label: "unseen" })).label as Record<
       string,
       unknown
     >;
     expect(machine).toMatchObject({
       kind: "machine",
-      machineId: "mch-box",
+      machineId: "mch-unseen",
       userId: OWNER,
       accountHandle: "owner",
       revoked: false,
       lastSeenAt: null,
     });
-    expect(machine.routingKey).toMatch(/^box:/u);
+    expect(machine.routingKey).toMatch(/^unseen:/u);
     expect((await resolve({ label: "gone" })).label).toMatchObject({
       kind: "server",
       revoked: true,
@@ -455,6 +461,35 @@ describe("POST /api/gate/resolve", () => {
       (await resolve({ desktopSession: `${fresh.slice(0, -2)}xx` }))
         .desktopSession,
     ).toBeNull();
+  });
+
+  it("records a phone's use on a request that doesn't renew its cookie", async () => {
+    const credentialHash = await sha256Hex("bbcm_phone_use");
+    await query(
+      db,
+      "INSERT INTO machine (id, user_id, name, kind, credential_hash, created_at) VALUES ('mch-phone', $1, 'phone', 'mobile', $2, $3)",
+      [OWNER, credentialHash, NOW],
+    );
+    const lastSeen = async () =>
+      (
+        await query<{ lastSeenAt: number | null }>(
+          db,
+          `SELECT last_seen_at AS "lastSeenAt" FROM machine WHERE id = 'mch-phone'`,
+          [],
+        )
+      )[0]?.lastSeenAt ?? null;
+
+    const fresh = await createDesktopSessionCookie(
+      { userId: OWNER, grant: { kind: "machine", credentialHash } },
+      SECRET,
+      NOW + 6.5 * DAY_MS,
+    );
+    expect(
+      (await resolve({ desktopSession: fresh })).desktopSession,
+    ).toMatchObject({ userId: OWNER, setCookie: null });
+    await vi.waitFor(async () =>
+      expect(Number(await lastSeen())).toBeGreaterThanOrEqual(NOW),
+    );
   });
 
   it("checks the link credential against the label's own hash and refuses revoked servers", async () => {

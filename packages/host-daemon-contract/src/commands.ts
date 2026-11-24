@@ -355,10 +355,20 @@ const threadStopIntentSchema = z.enum(["interrupt", "release"]);
 
 export type ThreadStopIntent = z.infer<typeof threadStopIntentSchema>;
 
+const threadStopAimSchema = z
+  .object({
+    turnId: z.string().min(1).nullable(),
+    requestIds: z.array(clientTurnRequestIdSchema),
+  })
+  .strict();
+
+export type ThreadStopAim = z.infer<typeof threadStopAimSchema>;
+
 export const threadStopCommandSchema = hostDaemonThreadTargetSchema
   .extend({
     type: z.literal("thread.stop"),
     intent: threadStopIntentSchema,
+    aimedAt: threadStopAimSchema.nullable(),
   })
   .strict();
 
@@ -1142,6 +1152,7 @@ const threadStartResultSchema = z.object({
   providerThreadId: z.string().min(1),
 });
 export const COMPETING_TURN_ERROR_CODE = "competing_turn" as const;
+export const STALE_TURN_ERROR_CODE = "stale_turn" as const;
 export const STEER_UNCONFIRMED_ERROR_CODE = "steer_unconfirmed" as const;
 export const TURN_START_UNCONFIRMED_ERROR_CODE =
   "turn_start_unconfirmed" as const;

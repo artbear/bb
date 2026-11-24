@@ -1,6 +1,9 @@
-import type { InternalDoNotUseSetupFailureStage } from "@get-bb/plugin-sdk/app";
+import type {
+  InternalDoNotUseSetupFailureDetail,
+  InternalDoNotUseSetupFailureStage,
+} from "@get-bb/plugin-sdk/app";
 import {
-  usePluginSlots,
+  usePluginSlotKind,
   type PluginSettingsSectionSlot,
 } from "@/lib/plugin-slots";
 import { PluginSlotMount } from "./PluginSlotMount";
@@ -12,9 +15,12 @@ export function PluginSettingsSections({
 }: {
   pluginId: string;
   onSetupStarted?: () => void;
-  onSetupFailed?: (stage: InternalDoNotUseSetupFailureStage) => void;
+  onSetupFailed?: (
+    stage: InternalDoNotUseSetupFailureStage,
+    detail?: InternalDoNotUseSetupFailureDetail,
+  ) => void;
 }) {
-  const { settingsSections } = usePluginSlots();
+  const settingsSections = usePluginSlotKind("settingsSections");
   const sections = settingsSections.filter(
     (section) =>
       section.pluginId === pluginId && section.experimental_page === undefined,
@@ -34,7 +40,7 @@ export function PluginMobileSettingsSections({
 }: {
   pluginId: string | null;
 }) {
-  const { settingsSections } = usePluginSlots();
+  const settingsSections = usePluginSlotKind("settingsSections");
   const sections = settingsSections.filter(
     (section) =>
       section.experimental_page === "mobile" && section.pluginId === pluginId,
@@ -51,7 +57,10 @@ function PluginSettingsSectionList({
   sections: readonly PluginSettingsSectionSlot[];
   onSetupStarted?: (() => void) | undefined;
   onSetupFailed?:
-    | ((stage: InternalDoNotUseSetupFailureStage) => void)
+    | ((
+        stage: InternalDoNotUseSetupFailureStage,
+        detail?: InternalDoNotUseSetupFailureDetail,
+      ) => void)
     | undefined;
 }) {
   return (

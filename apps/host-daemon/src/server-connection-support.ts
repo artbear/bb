@@ -92,6 +92,7 @@ export interface ServerConnectionOptions {
     | HostDaemonActiveThread[]
     | Promise<HostDaemonActiveThread[]>;
   getUndeliveredEventThreadIds?: () => string[];
+  getTurnCommandThreadIds?: () => string[];
   getOpenThreadWork?: () => HostDaemonOpenThreadWork[];
   getLoadedEnvironments?: () =>
     | HostDaemonLoadedEnvironment[]
@@ -114,6 +115,7 @@ export interface ServerConnectionOptions {
     session: HostDaemonSessionOpenResponse,
   ) => void | Promise<void>;
   onIdleProviderSessionTimeout?: (minutes: number) => void;
+  onAgentCpuPriority?: (enabled: boolean) => void;
   onMachineEnvironment?: (
     environment: HostDaemonSessionOpenResponse["machineEnvironment"],
   ) => void;

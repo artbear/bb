@@ -97,6 +97,7 @@ export interface AcpBoundPermissionToolCall {
   event: AcpToolCallUpdateEvent | undefined;
 }
 
+export const SYSTEM_INSTRUCTIONS_OPEN_TAG = "<system_instructions>";
 const ASSISTANT_STREAM_KEY = "assistant";
 const THOUGHT_STREAM_KEY = "thought";
 const ACP_PLAN_STEP_STATUS_BY_ENTRY_STATUS = {
@@ -751,7 +752,25 @@ export function createAcpDeltaTranslator(
             }),
           ];
         }
-        const mergedType = classifyCall(context, merged).item.type;
+        const classified = classifyCall(context, merged);
+        const mergedType = classified.item.type;
+        const previous =
+          open === undefined ? undefined : classifyCall(context, open.event);
+        const refreshed: ThreadDelta[] = [];
+        if (
+          previous?.item.type === "command" &&
+          classified.item.type === "command" &&
+          (previous.item.command !== classified.item.command ||
+            previous.presentation.title !== classified.presentation.title)
+        ) {
+          refreshed.push({
+            kind: "item.open",
+            key: { providerItemId: event.toolCallId },
+            item: classified.item,
+            presentation: classified.presentation,
+            noTurnFallback: noTurnFallbackFor(rawEvent),
+          });
+        }
         mergedToolCalls.set(key, {
           event: merged,
           openedType: open?.openedType ?? mergedType,
@@ -773,21 +792,27 @@ export function createAcpDeltaTranslator(
           const normalizedEvent =
             dialect.normalizeCommandEvent?.(event, merged) ?? event;
           const streamed = extractAcpStreamedCommandOutput(normalizedEvent);
-          return streamed === undefined
-            ? suppressedUnhandled(rawEvent)
-            : [
-                {
-                  kind: "command.outputSnapshot",
-                  key: { providerItemId: event.toolCallId },
-                  text: streamed,
-                },
-              ];
+          if (streamed === undefined) {
+            return refreshed.length === 0
+              ? suppressedUnhandled(rawEvent)
+              : refreshed;
+          }
+          return [
+            ...refreshed,
+            {
+              kind: "command.outputSnapshot",
+              key: { providerItemId: event.toolCallId },
+              text: streamed,
+            },
+          ];
         }
         const progressEvent =
           dialect.normalizeToolCallEvent?.(event, merged) ?? event;
         const progressText = extractAcpToolCallOutputText(progressEvent);
         if (progressText === undefined) {
-          return suppressedUnhandled(rawEvent);
+          return refreshed.length === 0
+            ? suppressedUnhandled(rawEvent)
+            : refreshed;
         }
         if (mergedType !== "command" && mergedType !== "fileChange") {
           return [
@@ -801,7 +826,9 @@ export function createAcpDeltaTranslator(
             },
           ];
         }
-        return suppressedUnhandled(rawEvent);
+        return refreshed.length === 0
+          ? suppressedUnhandled(rawEvent)
+          : refreshed;
       }
 
       case "plan": {
@@ -855,6 +882,7 @@ export function createAcpDeltaTranslator(
         if (
           typeof title !== "string" ||
           title.trim() === "" ||
+          title.trimStart().startsWith(SYSTEM_INSTRUCTIONS_OPEN_TAG) ||
           title === lastAgentTitle
         ) {
           return [];
@@ -943,8 +971,10 @@ export function createAcpDeltaTranslator(
   ): ThreadDelta[] {
     const errorEnvelope = errorEnvelopeSchema.safeParse(event);
     if (errorEnvelope.success) {
+      const closed = flushOpenTurnWork(context, "failed");
       clearThreadCalls(context);
       return [
+        ...closed,
         {
           kind: "provider.error",
           message: "Provider error",
@@ -967,9 +997,10 @@ export function createAcpDeltaTranslator(
         if (!params.success) {
           return [];
         }
+        const closed = flushOpenTurnWork(context, "interrupted");
         clearThreadCalls(context);
         filesAddedThisTurn.clear();
-        return [{ kind: "turn.open" }];
+        return [...closed, { kind: "turn.open" }];
       }
 
       case ACP_PROMPT_INTERRUPTED_METHOD: {
@@ -999,8 +1030,10 @@ export function createAcpDeltaTranslator(
         if (!params.success) {
           return [];
         }
+        const closed = flushOpenTurnWork(context, "interrupted");
         clearThreadCalls(context);
         return [
+          ...closed,
           { kind: "turn.open" },
           {
             kind: "item.open",
