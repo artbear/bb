@@ -365,7 +365,7 @@ export function AppCommandProvider({ children }: { children: ReactNode }) {
             return false;
           if (!hasAvailableHandler(candidate.command, event.target))
             return false;
-          context ??= currentContext(event.target);
+          if (context === null) context = currentContext(event.target);
           return matchesAppCommandContext(candidate, context);
         },
       );
