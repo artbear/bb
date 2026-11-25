@@ -1,5 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { codexResetCreditsHostContract } from "./reset-credits-contract.js";
 import {
   usageSourceRpcContract,
   usageListMethod,
@@ -21,6 +22,9 @@ const windowMetadataSchema = z.object({
 });
 
 export function registerUsageSource(bb: BbPluginApi) {
+  const resetHost = bb.hosts.experimental_client({
+    contract: codexResetCreditsHostContract,
+  });
   const cache = new Map<string, UsageMeasurement>();
   const pending = new Map<
     string,
@@ -80,7 +84,21 @@ export function registerUsageSource(bb: BbPluginApi) {
         const usage = result[providerId];
         if (!usage) throw new Error("Provider returned no usage information.");
         const metadata = metadataSchema.parse(usage);
+        const resetCredits =
+          usage.status === "ok"
+            ? await resetHost
+                .call(
+                  "codex.usage.resetCredits",
+                  {},
+                  { hostId, timeoutMs: 20_000 },
+                )
+                .catch(() => ({
+                  status: "error" as const,
+                  message: "Could not refresh reset credits.",
+                }))
+            : null;
         const value = usageMeasurementSchema.parse({
+          resetCredits,
           accountKey: metadata.accountKey,
           observedAt:
             usage.status === "ok" ? Date.now() : (previous?.observedAt ?? null),
