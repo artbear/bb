@@ -1,7 +1,9 @@
 import { renderTemplate } from "@bb/templates";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   getThread,
   listStoredTaskTurnRequestEvents,
+  threads,
   updateThread,
 } from "@bb/db";
 import {
@@ -21,7 +23,13 @@ import { ApiError } from "../../errors.js";
 import { runTextAiTask, type AiTaskFailureReason } from "../ai/ai-tasks.js";
 import type { CommandResultSideEffectsDeps } from "../../internal/command-result-side-effects.js";
 import { parseStoredTurnRequestEvent } from "./thread-events.js";
-import { listLatestTurnFinalAgentReplies } from "./thread-data.js";
+import {
+  getTurnFinalOutput,
+  listLatestTurnFinalAgentReplies,
+} from "./thread-data.js";
+import { pluginHookProvider } from "../plugins/plugin-hook-registry.js";
+import { deferAfterResponse } from "../lib/response-deferral.js";
+import { decideWithinBox } from "./dispatch-hooks.js";
 import { syncThreadTitleToProvider } from "./thread-commands.js";
 
 const MIN_TITLE_GENERATION_WORDS = 5;
@@ -39,6 +47,7 @@ const TITLE_AGENT_REPLY_LIMIT = 32;
 interface ApplyGeneratedThreadTitleArgs {
   threadId: string;
   title: string;
+  deferred?: boolean;
 }
 
 interface ThreadMetadataGenerationArgs {
@@ -78,6 +87,24 @@ function clampToWidth(text: string, maxWidth: number): string {
   }
   const body = truncateToWidth(text, maxWidth - ELLIPSIS.length);
   return `${body}${ELLIPSIS}`;
+}
+
+export function shouldDeferThreadTitle(
+  projectId: string,
+): Promise<boolean> | boolean {
+  const provider = pluginHookProvider();
+  const hook = "experimental_thread.titleTiming";
+  const registrations = provider?.listHooks(hook);
+  if (!provider || !registrations?.length) return false;
+  return decideWithinBox(async () => {
+    for (const registration of registrations) {
+      const result = await provider.invokeHook(registration, hook, async () =>
+        registration.handler({ projectId }),
+      );
+      if (result.ok && result.value === "after-first-reply") return true;
+    }
+    return false;
+  }, provider.decisionTimeoutMs).then((result) => result.ok && result.value);
 }
 
 export function deriveTitleFallback(input: PromptInput[]): string | null {
@@ -320,16 +347,15 @@ export function applyGeneratedThreadTitle(
     return false;
   }
 
-  const currentThread = getThread(deps.db, args.threadId);
-  if (!currentThread || currentThread.title) {
-    return false;
-  }
-
-  updateThread(deps.db, deps.hub, args.threadId, {
-    title,
-  });
-
-  return true;
+  return (
+    updateThread(
+      deps.db,
+      deps.hub,
+      args.threadId,
+      { title },
+      args.deferred ? "deferred" : "unset",
+    ) !== null
+  );
 }
 
 interface RegenerateThreadTitleArgs {
@@ -343,16 +369,23 @@ function visiblePromptInput(input: PromptInput[]): PromptInput[] {
 function loadThreadTitleRegenerationContext(
   deps: Pick<AppDeps, "db">,
   thread: Thread,
+  firstReply?: { taskSequence: number; text: string },
 ): ThreadTitleRegenerationContext | null {
+  const from = firstReply ? { fromSequence: firstReply.taskSequence } : {};
   const [taskRow] = listStoredTaskTurnRequestEvents(deps.db, {
+    ...from,
     threadId: thread.id,
     order: "oldest",
     limit: 1,
   });
-  if (taskRow === undefined) {
+  if (
+    taskRow === undefined ||
+    (firstReply !== undefined && taskRow.sequence !== firstReply.taskSequence)
+  ) {
     return null;
   }
   const followUps = listStoredTaskTurnRequestEvents(deps.db, {
+    ...from,
     threadId: thread.id,
     order: "newest",
     limit: TITLE_FOLLOW_UP_LIMIT,
@@ -360,10 +393,12 @@ function loadThreadTitleRegenerationContext(
     .filter((row) => row.sequence !== taskRow.sequence)
     .reverse()
     .map((row) => visiblePromptInput(parseStoredTurnRequestEvent(row).input));
-  const agentReplies = listLatestTurnFinalAgentReplies(deps.db, {
-    threadId: thread.id,
-    limit: TITLE_AGENT_REPLY_LIMIT,
-  }).reverse();
+  const agentReplies = firstReply
+    ? [firstReply.text]
+    : listLatestTurnFinalAgentReplies(deps.db, {
+        threadId: thread.id,
+        limit: TITLE_AGENT_REPLY_LIMIT,
+      }).reverse();
   return {
     agentReplies,
     currentTitle: thread.title,
@@ -404,11 +439,10 @@ export async function regenerateThreadTitle(
       "This thread has no task message to generate a title from",
     );
   }
-  const outcome = await runTextAiTask(deps, {
-    task: "thread-title",
-    label: "Thread title regeneration",
-    logContext: { threadId: args.thread.id },
+  const outcome = await requestRegeneratedThreadTitle(deps, {
+    threadId: args.thread.id,
     prompt,
+    deferred: false,
   });
   if (!outcome.ok) {
     throw titleRegenerationError(outcome.reason, outcome.message);
@@ -429,4 +463,107 @@ export async function regenerateThreadTitle(
   }
   syncThreadTitleToProvider(deps, thread);
   return thread;
+}
+
+function requestRegeneratedThreadTitle(
+  deps: LoggedWorkSessionDeps,
+  args: { threadId: string; prompt: string; deferred: boolean },
+) {
+  return runTextAiTask(deps, {
+    task: "thread-title",
+    label: args.deferred
+      ? "Deferred thread title generation"
+      : "Thread title regeneration",
+    ...(args.deferred ? { singleAttempt: true } : {}),
+    logContext: { threadId: args.threadId },
+    prompt: args.prompt,
+  });
+}
+
+export function rememberDeferredTitleTask(
+  db: AppDeps["db"],
+  threadId: string,
+  taskSequence: number,
+): void {
+  db.update(threads)
+    .set({ deferredTitleTaskSequence: taskSequence })
+    .where(
+      and(
+        eq(threads.id, threadId),
+        eq(threads.deferredTitleGeneration, "pending"),
+        isNull(threads.deferredTitleTaskSequence),
+      ),
+    )
+    .run();
+}
+
+export function scheduleDeferredThreadTitle(
+  deps: CommandResultSideEffectsDeps,
+  args: { threadId: string; turnId: string },
+): void {
+  const thread = getThread(deps.db, args.threadId);
+  if (
+    thread?.deferredTitleGeneration !== "pending" ||
+    thread.deferredTitleTaskSequence === null ||
+    thread.title !== null ||
+    thread.deletedAt !== null
+  )
+    return;
+
+  const taskSequence = thread.deferredTitleTaskSequence;
+  const reply = getTurnFinalOutput(deps.db, args);
+  if (reply === null) return;
+
+  const claimed = deps.db
+    .update(threads)
+    .set({
+      deferredTitleGeneration: "claimed",
+      deferredTitleTaskSequence: null,
+    })
+    .where(
+      and(
+        eq(threads.id, thread.id),
+        eq(threads.deferredTitleGeneration, "pending"),
+        isNull(threads.title),
+        isNull(threads.deletedAt),
+      ),
+    )
+    .run();
+  if (claimed.changes === 0) return;
+
+  deferAfterResponse({
+    config: deps.config,
+    logger: deps.logger,
+    name: "Deferred thread title generation",
+    context: { threadId: thread.id },
+    work: async () => {
+      if (getThread(deps.db, thread.id)?.deferredTitleGeneration !== "claimed")
+        return;
+      const context = loadThreadTitleRegenerationContext(deps, thread, {
+        taskSequence,
+        text: reply,
+      });
+      const prompt =
+        context === null ? null : buildThreadTitleRegenerationPrompt(context);
+      if (prompt === null) return;
+      const outcome = await requestRegeneratedThreadTitle(deps, {
+        threadId: thread.id,
+        prompt,
+        deferred: true,
+      });
+      if (!outcome.ok) return;
+      const title = sanitizeGeneratedTitle(outcome.value);
+      if (
+        title === null ||
+        !applyGeneratedThreadTitle(deps, {
+          threadId: thread.id,
+          title,
+          deferred: true,
+        })
+      )
+        return;
+      const renamed = getThread(deps.db, thread.id);
+      if (renamed !== null) syncThreadTitleToProvider(deps, renamed);
+    },
+  });
 }

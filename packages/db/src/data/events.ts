@@ -5186,6 +5186,7 @@ export function getLastStoredTurnRequestEvent(
 
 
 interface ListStoredTaskTurnRequestEventsArgs {
+  fromSequence?: number;
   limit: number;
   order: "oldest" | "newest";
   threadId: string;
@@ -5212,6 +5213,7 @@ export function listStoredTaskTurnRequestEvents(
           AND json_type(${events.data}, '$.input') IS NOT NULL
         )
       )
+      AND ${events.sequence} >= ${args.fromSequence ?? 0}
       AND json_extract(${events.data}, '$.systemMessageKind') IS NULL
       AND (
         json_extract(${events.data}, '$.initiator') = 'user'

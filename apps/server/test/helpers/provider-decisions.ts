@@ -26,6 +26,7 @@ export type TestEnvironmentProviderContext = Pick<
   PluginEnvironmentProviderCreateContext,
   "thread" | "project" | "host" | "projectCheckout" | "gitRemote"
 > & {
+  suggestedBranchName?: string;
   machine: import("@bb/domain").EnvironmentMachineSelection;
   inputs: JsonValue | null;
   environment:
@@ -37,10 +38,7 @@ export function providerOperations(
   decide: (
     context: TestEnvironmentProviderContext,
   ) => TestProviderDecision | Promise<TestProviderDecision>,
-): Pick<
-  PluginEnvironmentProviderDeclaration,
-  "create" | "restore" | "remove"
-> {
+): Pick<PluginEnvironmentProviderDeclaration, "create" | "restore" | "remove"> {
   async function run(
     context: TestEnvironmentProviderContext,
     report: Parameters<

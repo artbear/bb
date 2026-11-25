@@ -216,8 +216,11 @@ export async function ensureThreadProvisionEnvironmentReady(
         context,
       });
     }
+    const generateEarlyTitle =
+      !context.request.titleProvided &&
+      getThread(deps.db, thread.id)?.deferredTitleGeneration === null;
     if (context.request.environmentIntent.type === "provider") {
-      if (!context.request.titleProvided)
+      if (generateEarlyTitle)
         await inferThreadMetadata(deps, {
           input: context.request.input,
           provisioningId: context.state.provisioningId,
@@ -225,7 +228,7 @@ export async function ensureThreadProvisionEnvironmentReady(
           writeTranscript: true,
         });
     } else {
-      if (!context.request.titleProvided) {
+      if (generateEarlyTitle) {
         void inferThreadMetadata(deps, {
           input: context.request.input,
           provisioningId: context.state.provisioningId,

@@ -65,7 +65,11 @@ import {
   resolveTelemetryInitiator,
   initiatorTelemetryProperty,
 } from "./telemetry-initiator.js";
-import { deriveForkTitle, deriveTitleFallback } from "./title-generation.js";
+import {
+  deriveForkTitle,
+  deriveTitleFallback,
+  shouldDeferThreadTitle,
+} from "./title-generation.js";
 import {
   FORK_HISTORY_COPY_MARK,
   listThreadIdsCopyingForkHistory,
@@ -490,8 +494,12 @@ async function createPendingThreadAndAttemptFirstDispatch(
     args.request.visibility === "visible"
       ? args.fork.historyEndSequence
       : null;
+  const deferTitleGeneration =
+    !startContext.titleProvided &&
+    (await shouldDeferThreadTitle(args.request.projectId));
   const thread = createThreadRecord(deps, {
     request: args.request,
+    deferTitleGeneration,
     environmentId: args.environmentId,
     startupContext: JSON.stringify({
       kind: "pending",

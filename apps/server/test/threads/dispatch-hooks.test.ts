@@ -57,7 +57,7 @@ type HookRegistry = {
 };
 
 function emptyRegistry(): HookRegistry {
-  return { "message.dispatch": [] };
+  return { "experimental_thread.titleTiming": [], "message.dispatch": [] };
 }
 
 function installHooks(
@@ -181,6 +181,7 @@ describe("message.dispatch hook context", () => {
     await withTestHarness(async (harness) => {
       const seen: unknown[] = [];
       installHooks({
+        "experimental_thread.titleTiming": [],
         "message.dispatch": [
           {
             pluginId: "drafts",
@@ -221,6 +222,7 @@ describe("message.dispatch hook context", () => {
   it("applies plugin policy before a future schedule", async () => {
     await withTestHarness(async (harness) => {
       installHooks({
+        "experimental_thread.titleTiming": [],
         "message.dispatch": [
           {
             pluginId: "drafts",
@@ -258,6 +260,7 @@ describe("message.dispatch hook context", () => {
       const { host, project } = seedDispatchFixture(harness, "host-intent");
       const seen: { environment: unknown; hostId: string | null }[] = [];
       installHooks({
+        "experimental_thread.titleTiming": [],
         "message.dispatch": [
           {
             pluginId: "limits",

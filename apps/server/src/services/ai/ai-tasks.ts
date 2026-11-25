@@ -53,6 +53,7 @@ interface RunAiTaskArgs<T> {
   logContext?: JsonObject;
   timeoutMs?: number;
   signal?: AbortSignal;
+  singleAttempt?: true;
   call: (service: AiServiceRegistration, signal: AbortSignal) => Promise<T>;
   accept: (value: T) => T | null;
 }
@@ -277,6 +278,7 @@ export async function runAiTask<T>(
     } finally {
       link.dispose();
     }
+    if (args.singleAttempt) break;
   }
   return fail(last.reason, last.message);
 }
@@ -290,6 +292,7 @@ export function runTextAiTask(
     logContext?: JsonObject;
     timeoutMs?: number;
     signal?: AbortSignal;
+    singleAttempt?: true;
   },
 ): Promise<AiTaskOutcome<string>> {
   return runAiTask(deps, {
@@ -298,6 +301,7 @@ export function runTextAiTask(
     ...(args.logContext === undefined ? {} : { logContext: args.logContext }),
     ...(args.timeoutMs === undefined ? {} : { timeoutMs: args.timeoutMs }),
     ...(args.signal === undefined ? {} : { signal: args.signal }),
+    ...(args.singleAttempt ? { singleAttempt: true } : {}),
     call: (service, signal) => {
       if (service.complete === null) {
         throw new Error("This service does not answer text prompts");

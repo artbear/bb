@@ -573,7 +573,10 @@ class LimiterPlugin {
     };
     const registry: {
       [K in PluginHookName]: PluginHookRegistration<K>[];
-    } = { "message.dispatch": this.registrations };
+    } = {
+      "experimental_thread.titleTiming": [],
+      "message.dispatch": this.registrations,
+    };
     this.registrations.push(registration, {
       pluginId: HOLDING_PLUGIN_ID,
       handler: (context) =>

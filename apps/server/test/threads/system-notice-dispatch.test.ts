@@ -68,6 +68,7 @@ function installDispatchHook(
     | Promise<{ action: "proceed" }>,
 ): void {
   const registry: HookRegistry = {
+    "experimental_thread.titleTiming": [],
     "message.dispatch": [{ pluginId: "notice-test", handler }],
   };
   setPluginHookProvider({

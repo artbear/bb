@@ -100,6 +100,13 @@ describe("product-map surfaces", () => {
     }
   });
 
+  it("lists the title timing hook in the backend guide", () => {
+    expect(surfaceIds("headless")).toContain("thread-title-timing");
+    expect(SURFACES_BY_ID.get("thread-title-timing")?.apiSymbols).toContain(
+      "ExperimentalThreadTitleTimingDecision",
+    );
+  });
+
   it("clusters every headless surface into exactly one named section", () => {
     const headless = groupById.get("headless" as never);
     const sectioned = (headless?.sections ?? []).flatMap(

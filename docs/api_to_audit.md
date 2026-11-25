@@ -621,10 +621,6 @@ Docs: `backend-events.md`.
   context for handlers built against an older SDK. Drop the context field and
   its shim before stabilizing. The queued row's internal
   `requested_by_initiator` / `requested_by_thread_id` are unaffected.
-- **One hook is not a shape.** The registry, the map and the
-  `on(hook, handler)` signature are built for several hooks, and there is one.
-  Confirm the second hook fits the shape before stabilizing it, or collapse
-  the argument.
 - **`wait` returns no row id.** The id arrives later on `message.queued`, so a
   plugin that must act on its own wait correlates by ordering or re-queries
   `threads.queue.list({ waitHolder })`. Decide whether the decision should be
@@ -4874,3 +4870,22 @@ precedence, bounded discovery failure, and module-ABI preservation after Node
 replacement. Settle the shared process-local instance lifecycle across SDK
 bundle versions and whether `bundledNpmCli` belongs on the public surface before
 removing the prefix.
+
+## `experimental_thread.titleTiming`
+
+Register through `bb.experimental_hooks.on`. Before creating an unnamed thread,
+BB passes its `projectId`. The first `after-first-reply` answer in installation order
+selects deferred generation. A `default` answer passes to the next handler.
+If the decision window expires or every handler passes or fails, BB uses its
+usual provisioning path. BB persists the decision for that thread.
+
+An applied successful turn with a visible assistant reply claims one background
+attempt. The generator uses the configured thread-title service and the same
+context builder as Regenerate title. Both automatic paths share the guarded
+title writer. A title write, including a manual reset, overrides a pending
+automatic result. The environment provider still creates the branch at startup.
+
+**Audit before stabilizing.** Verify that project scope and a single decision at
+creation serve plugin authors, and that the ownership and timeout policy fit
+when several plugins participate. Exercise held completions, failed turns,
+duplicate events, title edits and the default path without subscribers.

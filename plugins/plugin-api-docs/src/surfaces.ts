@@ -1029,6 +1029,7 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "wire",
           "thread-events",
           "dispatch-hook",
+          "thread-title-timing",
           "environment-providers",
           "machine-providers",
           "server-access",
@@ -1316,6 +1317,24 @@ export const SURFACE_GROUPS: SurfaceGroup[] = [
           "MessageDispatchHookDecision",
         ],
         firstParty: ["Concurrency limit", "Drafts"],
+        experimental: true,
+      },
+      {
+        id: "thread-title-timing",
+        tagline: "Name new threads after a reply",
+        title: "Thread title timing",
+        summary:
+          "Use the `experimental_thread.titleTiming` hook when BB creates an unnamed thread. With this, a plugin can:",
+        bullets: [
+          "Return `after-first-reply` to use the first successful turn with a visible reply",
+          "Keep the preview visible while the configured title service runs in the background",
+          "Let a manual title update take precedence over the automatic result",
+        ],
+        apiSymbols: [
+          "PluginHooks",
+          "PluginHookSignatures",
+          "ExperimentalThreadTitleTimingDecision",
+        ],
         experimental: true,
       },
       {

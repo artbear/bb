@@ -636,6 +636,7 @@ export function createPluginApi(options: {
   };
   const hooks: PluginHookRecords = {
     "message.dispatch": null,
+    "experimental_thread.titleTiming": null,
   };
   const environmentCompositions = new Map<
     string,
@@ -1248,11 +1249,8 @@ export function createPluginApi(options: {
       }
       storePluginHook(hooks, hook, handler);
     },
-    async recheck(hook) {
+    async recheck(_hook) {
       assertLive();
-      // One hook key exists; the parameter selects which question to re-pose
-      // and widens additively when a second key ever ships.
-      void hook;
       // Resolves on SCHEDULING. The walk runs on a later macrotask, and the
       // caller is not the one it reports to — a failed re-attempt lands on the
       // row it failed, like every other background drain.
