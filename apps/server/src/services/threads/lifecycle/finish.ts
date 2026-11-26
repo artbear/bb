@@ -31,6 +31,7 @@ import {
 } from "../thread-commands.js";
 import { buildThreadStatusChangeMetadata } from "../thread-runtime-display.js";
 import { runReleasedTurnFollowUps } from "../turn-end-follow-ups.js";
+import { scheduleDeferredThreadTitle } from "../title-generation.js";
 import type { ThreadLifecycleEffect, ThreadLifecycleInput } from "./machine.js";
 import {
   environmentForThread,
@@ -193,6 +194,13 @@ async function runEffect(
       return;
     }
     case "turn-ended":
+      if (
+        outcome.thread?.deferredTitleGeneration === "pending" &&
+        effect.status === "completed" &&
+        (effect.disposition === "applied" || effect.disposition === "released")
+      ) {
+        scheduleDeferredThreadTitle(deps, { threadId, turnId: effect.turnId });
+      }
       if (effect.disposition === "released") {
         await runReleasedTurnFollowUps(deps, {
           status: effect.status,

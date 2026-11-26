@@ -623,6 +623,10 @@ export const threads = sqliteTable(
     ).$type<ReasoningLevel>(),
     title: text("title"),
     titleFallback: text("title_fallback"),
+    deferredTitleGeneration: text("deferred_title_generation", {
+      enum: ["pending", "claimed", "closed"],
+    }),
+    deferredTitleTaskSequence: integer("deferred_title_task_sequence"),
     sectionId: text("section_id").references(() => threadSections.id, {
       onDelete: "set null",
     }),

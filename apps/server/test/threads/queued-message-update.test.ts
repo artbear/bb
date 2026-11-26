@@ -52,6 +52,7 @@ afterEach(() => {
 function recordDispatchHookCalls(): string[][] {
   const calls: string[][] = [];
   const registry: HookRegistry = {
+    "experimental_thread.titleTiming": [],
     "message.dispatch": [
       {
         pluginId: "send-time-test",

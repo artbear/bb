@@ -61,8 +61,8 @@ export interface PluginHookProvider {
    * fails the dispatch on top of that. It runs on the plugin instance that
    * registered it, and fails without running once that instance is disposed.
    */
-  invokeHook<T>(
-    registration: PluginHookRegistration<PluginHookName>,
+  invokeHook<T, K extends PluginHookName>(
+    registration: PluginHookRegistration<K>,
     label: string,
     run: () => Promise<T>,
   ): Promise<PluginHookInvocation<T>>;

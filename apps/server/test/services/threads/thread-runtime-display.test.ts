@@ -238,6 +238,8 @@ function createThreadListEntry(
     environmentName: null,
     hasPendingInteraction: false,
     startupContext: null,
+    deferredTitleGeneration: null,
+    deferredTitleTaskSequence: null,
   };
 }
 

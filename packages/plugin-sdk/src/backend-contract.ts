@@ -728,13 +728,17 @@ export interface MessageDispatchHookContext {
   parentThreadId: string | null;
 }
 
+export type ExperimentalThreadTitleTimingDecision =
+  | "default"
+  | "after-first-reply";
+
 /**
  * The hooks a plugin can answer, each mapping its key to the context core
  * hands the handler and the decision core acts on. `on()` and the handler type
  * derive from this map — and so does the server's hook registry — so a
  * half-added hook does not compile.
  *
- * One hook today: `message.dispatch`, THE admission checkpoint, run identically
+ * `message.dispatch` is the admission checkpoint, run identically
  * for a thread's first message, a follow-up, a steer, a retry, and every
  * re-attempt a drain makes. It replaced the earlier `thread.create` +
  * `turn.submit` pair, whose split was an accident of where the code happened to
@@ -745,6 +749,10 @@ export interface PluginHookSignatures {
   "message.dispatch": {
     context: MessageDispatchHookContext;
     decision: MessageDispatchHookDecision;
+  };
+  "experimental_thread.titleTiming": {
+    context: { projectId: string };
+    decision: ExperimentalThreadTitleTimingDecision;
   };
 }
 
@@ -767,7 +775,14 @@ export interface PluginHooks {
    * pre-commit and post-commit hooks, and the reason the two live in separate
    * namespaces rather than behind one `on`.
    *
-   * Handlers for a hook run as a deterministic chain in plugin install order,
+   * For `experimental_thread.titleTiming`, BB asks when creating an unnamed
+   * thread. The first `after-first-reply` decision replaces early generation
+   * with one background attempt after a successful turn with a visible reply.
+   * Errors and timeouts leave the default available. BB saves the choice with
+   * the new thread, uses the configured title service, and respects renames.
+   * Return `default` to let BB and other handlers choose the timing.
+   *
+   * For `message.dispatch`, handlers run in plugin install order,
    * a `reject` short-circuits the pass, and `wait` decisions are COLLECTED
    * across the whole pass rather than short-circuiting. The attempt proceeds
    * only when a pass yields no waits. When several plugins wait, the FIRST owns
@@ -819,7 +834,7 @@ export interface PluginHooks {
    * awaiting a full hook pass from inside whatever called this, which for a
    * handler holding the evaluation lock could not complete. Fire and forget.
    */
-  recheck(hook: PluginHookName): Promise<void>;
+  recheck(hook: "message.dispatch"): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------

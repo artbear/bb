@@ -317,6 +317,7 @@ export interface CreateThreadInput {
   providerId: string;
   title?: string | null;
   titleFallback?: string | null;
+  deferTitleGeneration?: boolean;
   sectionId?: string | null;
   pinned?: boolean;
   status?: ThreadStatus;
@@ -375,6 +376,7 @@ export function createThread(
           providerId: input.providerId,
           title: input.title ?? null,
           titleFallback: input.titleFallback ?? null,
+          deferredTitleGeneration: input.deferTitleGeneration ? "pending" : null,
           sectionId: input.sectionId ?? null,
           pinnedAt: input.pinned ? now : null,
           pinSortKey: input.pinned
@@ -1857,6 +1859,7 @@ export function updateThread(
   notifier: DbNotifier,
   id: string,
   input: UpdateThreadInput,
+  titlePrecondition?: "unset" | "deferred",
 ) {
   const now = Date.now();
   const existing = db.select().from(threads).where(eq(threads.id, id)).get();
@@ -1889,7 +1892,13 @@ export function updateThread(
   }
 
   const set: Partial<typeof threads.$inferInsert> = { updatedAt: now };
-  if ("title" in input) set.title = input.title;
+  if ("title" in input) {
+    set.title = input.title;
+    if (existing.deferredTitleGeneration !== null) {
+      set.deferredTitleGeneration = "closed";
+      set.deferredTitleTaskSequence = null;
+    }
+  }
   if ("sectionId" in input) {
     set.sectionId = input.sectionId;
   }
@@ -1906,7 +1915,13 @@ export function updateThread(
   const updated = db
     .update(threads)
     .set(set)
-    .where(eq(threads.id, id))
+    .where(and(
+      eq(threads.id, id),
+      titlePrecondition === undefined ? undefined : or(isNull(threads.title), eq(threads.title, "")),
+      titlePrecondition === "deferred"
+        ? and(eq(threads.deferredTitleGeneration, "claimed"), isNull(threads.deletedAt))
+        : undefined,
+    ))
     .returning()
     .get();
   if (updated && "title" in input) {

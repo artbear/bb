@@ -1,3 +1,4 @@
+import { rememberDeferredTitleTask } from "./title-generation.js";
 import {
   getLatestThreadSequence,
   getNonDestroyedHostByLaunchKey,
@@ -323,6 +324,7 @@ export function requestThreadProvision(
       source: "spawn",
       target,
     });
+    rememberDeferredTitleTask(deps.db, args.thread.id, request.sequence);
     recordAcceptedPromptHistoryEntry(deps, {
       thread: args.thread,
       input: args.input,

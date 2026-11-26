@@ -47,6 +47,8 @@ const THREAD_COLUMN_CHANGES: {
   reasoningLevelOverride: () => ({ reasoningLevelOverride: "high" }),
   title: () => ({ title: "Renamed thread" }),
   titleFallback: () => ({ titleFallback: "Renamed fallback" }),
+  deferredTitleGeneration: () => ({ deferredTitleGeneration: "pending" }),
+  deferredTitleTaskSequence: () => ({ deferredTitleTaskSequence: 1 }),
   sectionId: ({ harness }) => ({
     sectionId: createThreadSection(harness.db, harness.hub, {
       name: "Section",

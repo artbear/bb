@@ -332,6 +332,7 @@ describe("the requested queue drain", () => {
       vi.useFakeTimers();
       let attempts = 0;
       installHooks({
+        "experimental_thread.titleTiming": [],
         "message.dispatch": [
           {
             pluginId: "limiter",
@@ -381,6 +382,7 @@ describe("the requested queue drain", () => {
       let released = false;
       let attempts = 0;
       installHooks({
+        "experimental_thread.titleTiming": [],
         "message.dispatch": [
           {
             pluginId: "limiter",
@@ -440,6 +442,7 @@ describe("the requested queue drain", () => {
         let released = first === "plugin-first";
         let attempts = 0;
         installHooks({
+          "experimental_thread.titleTiming": [],
           "message.dispatch": [
             {
               pluginId: "limiter",
@@ -523,6 +526,7 @@ describe("the requested queue drain", () => {
     async (kind) => {
       await withTestHarness(async (harness) => {
         installHooks({
+          "experimental_thread.titleTiming": [],
           "message.dispatch": [
             {
               pluginId: "limiter",
@@ -595,6 +599,7 @@ describe("the requested queue drain", () => {
       await withTestHarness(async (harness) => {
         let attempts = 0;
         installHooks({
+          "experimental_thread.titleTiming": [],
           "message.dispatch": [
             {
               pluginId: "limiter",
@@ -657,7 +662,10 @@ describe("the requested queue drain", () => {
   it("leaves rows on core waits alone", async () => {
     await withTestHarness(async (harness) => {
       const seen: string[] = [];
-      const registry: HookRegistry = { "message.dispatch": [] };
+      const registry: HookRegistry = {
+        "experimental_thread.titleTiming": [],
+        "message.dispatch": [],
+      };
       const { thread } = seedRunnableThread(harness, {
         hostId: "host-core-wait",
         status: "active",
@@ -690,7 +698,10 @@ describe("the requested queue drain", () => {
   it("honours the re-queue pacing so a plugin that stays full is not re-asked in a loop", async () => {
     await withTestHarness(async (harness) => {
       let passes = 0;
-      const registry: HookRegistry = { "message.dispatch": [] };
+      const registry: HookRegistry = {
+        "experimental_thread.titleTiming": [],
+        "message.dispatch": [],
+      };
       registry["message.dispatch"].push({
         pluginId: "limiter",
         handler: () => {
@@ -720,7 +731,10 @@ describe("the requested queue drain", () => {
     await withTestHarness(async (harness) => {
       let admit = false;
       const seen: string[] = [];
-      const registry: HookRegistry = { "message.dispatch": [] };
+      const registry: HookRegistry = {
+        "experimental_thread.titleTiming": [],
+        "message.dispatch": [],
+      };
       registry["message.dispatch"].push({
         pluginId: "limiter",
         handler: (context) => {
@@ -801,7 +815,10 @@ describe("requesting a drain", () => {
   it("coalesces a burst of requests into one walk", async () => {
     await withTestHarness(async (harness) => {
       let passes = 0;
-      const registry: HookRegistry = { "message.dispatch": [] };
+      const registry: HookRegistry = {
+        "experimental_thread.titleTiming": [],
+        "message.dispatch": [],
+      };
       registry["message.dispatch"].push({
         pluginId: "limiter",
         handler: () => {
@@ -969,6 +986,7 @@ describe("a thread-ready wake during a running drain", () => {
       });
       let wokeDuringDrain = false;
       installHooks({
+        "experimental_thread.titleTiming": [],
         "message.dispatch": [
           {
             pluginId: "limiter",
@@ -1021,6 +1039,7 @@ describe("a targeted attempt that holds its claim while the turn completes", () 
         status: "active",
       });
       installHooks({
+        "experimental_thread.titleTiming": [],
         "message.dispatch": [
           {
             pluginId: "limiter",

@@ -58,6 +58,7 @@ afterEach(() => {
 
 function holdParentDeliveries(): void {
   const registry: HookRegistry = {
+    "experimental_thread.titleTiming": [],
     "message.dispatch": [
       {
         pluginId: "hold-parent",

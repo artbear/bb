@@ -91,6 +91,7 @@ export function createThreadRecord(
   deps: Pick<AppDeps, "db"> & { hub: DbNotifier },
   args: {
     environmentId: string | null;
+    deferTitleGeneration?: boolean;
     startupContext?: string;
     request: ThreadCreateServiceRequest;
   },
@@ -107,6 +108,7 @@ export function createThreadRecord(
       providerId: args.request.providerId,
       title: args.request.title ?? null,
       titleFallback: args.request.titleFallback,
+      deferTitleGeneration: args.deferTitleGeneration ?? false,
       sectionId,
       pinned: args.request.pinned ?? false,
       parentThreadId: args.request.parentThreadId ?? null,

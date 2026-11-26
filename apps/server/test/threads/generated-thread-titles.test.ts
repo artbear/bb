@@ -6,7 +6,7 @@ import {
   turnScope,
 } from "@bb/domain";
 import { groupHostDaemonEvents } from "@bb/host-daemon-contract";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   internalAuthHeaders,
   listQueuedThreadCommands,
@@ -40,6 +40,12 @@ import {
 } from "../../src/services/threads/thread-provisioning.js";
 import { generateThreadMetadataWithOutcome } from "../../src/services/threads/title-generation.js";
 import { listEvents } from "@bb/db/testing";
+import {
+  invokePluginInline,
+  setPluginHookProvider,
+  type PluginHookRegistration,
+} from "../../src/services/plugins/plugin-hook-registry.js";
+import type { PluginHookName } from "@get-bb/plugin-sdk";
 
 interface MockThreadMetadata {
   title?: string;
@@ -898,6 +904,272 @@ describe("generated thread titles", () => {
       expect(sentPrompt()).not.toContain(
         "The prompt invokes these commands or skills",
       );
+    });
+  });
+});
+
+describe("deferred thread titles", () => {
+  beforeEach(() => {
+    completeTitle.mockReset();
+  });
+  afterEach(() => setPluginHookProvider(undefined));
+
+  function installTiming(decide: () => "after-first-reply" | "default") {
+    const registry: { [K in PluginHookName]: PluginHookRegistration<K>[] } = {
+      "message.dispatch": [],
+      "experimental_thread.titleTiming": [
+        { pluginId: "title-policy", handler: decide },
+      ],
+    };
+    setPluginHookProvider({
+      listHooks: (hook) => registry[hook],
+      invokeHook: (_record, _label, run) => invokePluginInline(run),
+      decisionTimeoutMs: 1000,
+    });
+  }
+
+  async function start(
+    harness: TestAppHarness,
+    task: string,
+    options: { worktree?: boolean; title?: string } = {},
+  ) {
+    const { host, session } = seedHostSession(harness.deps);
+    const path = "/tmp/deferred-title-workspace";
+    const { project } = seedProjectWithSource(harness.deps, {
+      hostId: host.id,
+      path,
+    });
+    const environment = seedEnvironment(harness.deps, {
+      hostId: host.id,
+      projectId: project.id,
+      path,
+      status: "ready",
+    });
+    const title = options.title === undefined ? {} : { title: options.title };
+    const worktree = options.worktree
+      ? installFakeGitWorktreeProvider(() => ({
+          action: "ready",
+          environment: { type: "host", hostId: host.id, path },
+        }))
+      : null;
+    const thread = options.worktree
+      ? await createManagedWorktreeThread(harness, {
+          hostId: host.id,
+          projectId: project.id,
+          text: task,
+          ...title,
+        })
+      : await createThreadFromRequest(harness.deps, {
+          environment: { type: "reuse", environmentId: environment.id },
+          input: textInput(task),
+          model: "gpt-5",
+          origin: "app",
+          projectId: project.id,
+          providerId: "codex",
+          startedOnBehalfOf: null,
+          ...title,
+        });
+    const command = await waitForQueuedCommand(
+      harness,
+      ({ command }) =>
+        command.type === "thread.start" && command.threadId === thread.id,
+    );
+    await reportQueuedCommandSuccess(
+      harness,
+      command,
+      { providerThreadId: "provider-deferred-title" },
+      { hostId: host.id },
+    );
+    return { thread, sessionId: session.id, worktree };
+  }
+
+  async function postTurn(
+    harness: TestAppHarness,
+    state: Awaited<ReturnType<typeof start>>,
+    turnId: string,
+    text: string,
+    status: "completed" | "failed" | "interrupted" = "completed",
+  ) {
+    const threadId = state.thread.id;
+    const common = {
+      threadId,
+      providerThreadId: "provider-deferred-title",
+      scope: turnScope(turnId),
+    };
+    const response = await harness.app.request("/internal/session/events", {
+      method: "POST",
+      headers: internalAuthHeaders(harness),
+      body: JSON.stringify({
+        sessionId: state.sessionId,
+        eventGroups: groupHostDaemonEvents([
+          { threadId, event: { ...common, type: "turn/started" } },
+          {
+            threadId,
+            event: {
+              ...common,
+              type: "item/completed",
+              item: { type: "agentMessage", id: `assistant-${turnId}`, text },
+            },
+          },
+          { threadId, event: { ...common, type: "turn/completed", status } },
+        ]),
+      }),
+    });
+    expect(response.status).toBe(200);
+  }
+
+  it("uses the preview for the worktree and generates once from the task and final reply", async () => {
+    const resolveMetadata = pendingThreadMetadata();
+    await withTestHarness(async (harness) => {
+      let defer = true;
+      installTiming(() => (defer ? "after-first-reply" : "default"));
+      const task = "Investigate missing task progress";
+      const state = await start(harness, task, { worktree: true });
+      const { thread } = state;
+      const workspace = await state.worktree?.waitForProvision();
+      expect(
+        workspace?.suggestedBranchName?.endsWith(
+          `investigate-missing-task-progress-${thread.id}`,
+        ),
+      ).toBe(true);
+      expect(workspace?.thread.title).toBeNull();
+      expect(getThread(harness.db, thread.id)?.titleFallback).toBe(task);
+      expect(
+        provisioningEntries(harness, thread.id).map((entry) => entry.text),
+      ).not.toContain("Generating title");
+      expect(completeTitle).not.toHaveBeenCalled();
+
+      defer = false;
+      await postTurn(harness, state, "turn-empty", "  ");
+      expect(getThread(harness.db, thread.id)?.deferredTitleGeneration).toBe(
+        "pending",
+      );
+      const reply = "The progress cache drops partial updates.";
+      await postTurn(harness, state, "turn-with-reply", reply);
+      expect(getThread(harness.db, thread.id)?.status).toBe("idle");
+      await vi.waitFor(() => expect(completeTitle).toHaveBeenCalledTimes(1));
+      expect(getThread(harness.db, thread.id)?.title).toBeNull();
+      expect(sentPrompt()).toContain(task);
+      expect(sentPrompt()).toContain(reply);
+      await postTurn(harness, state, "turn-with-reply", reply);
+      await postTurn(harness, state, "turn-follow-up", "A newer answer");
+      resolveMetadata({ title: "Restore task progress updates" });
+      await vi.waitFor(() =>
+        expect(getThread(harness.db, thread.id)?.title).toBe(
+          "Restore task progress updates",
+        ),
+      );
+      expect(completeTitle).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it.each(["failed", "interrupted"] as const)(
+    "ignores a %s turn with assistant text",
+    async (status) => {
+      await withTestHarness(async (harness) => {
+        installTiming(() => "after-first-reply");
+        const state = await start(harness, "Diagnose the failed local build");
+        await postTurn(
+          harness,
+          state,
+          "turn-aborted",
+          "Partial progress",
+          status,
+        );
+        expect(
+          getThread(harness.db, state.thread.id)?.deferredTitleGeneration,
+        ).toBe("pending");
+        expect(completeTitle).not.toHaveBeenCalled();
+      });
+    },
+  );
+
+  it.each(["Keep my name", null])(
+    "preserves a concurrent manual title update to %s",
+    async (title) => {
+      const resolveMetadata = pendingThreadMetadata();
+      await withTestHarness(async (harness) => {
+        installTiming(() => "after-first-reply");
+        const state = await start(
+          harness,
+          "Investigate the local startup issue",
+        );
+        await postTurn(
+          harness,
+          state,
+          "turn-rename",
+          "Found and fixed the startup issue.",
+        );
+        await vi.waitFor(() => expect(completeTitle).toHaveBeenCalledTimes(1));
+        const response = await harness.app.request(
+          `/api/v1/threads/${state.thread.id}`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ title }),
+          },
+        );
+        expect(response.status).toBe(200);
+        resolveMetadata({ title: "Autogenerated title" });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(getThread(harness.db, state.thread.id)?.title).toBe(title);
+        expect(
+          getThread(harness.db, state.thread.id)?.deferredTitleGeneration,
+        ).toBe("closed");
+      });
+    },
+  );
+
+  it.each(["explicit", "off", "empty"])(
+    "avoids model calls for %s",
+    async (scenario) => {
+      await withTestHarness(async (harness) => {
+        installTiming(() => "after-first-reply");
+        if (scenario === "off")
+          setAiServiceSelection(harness.db, "thread-title", { mode: "off" });
+        const explicit = scenario === "explicit" ? "Explicit title" : undefined;
+        const state = await start(
+          harness,
+          scenario === "empty" ? "  " : "Summarize the active development task",
+          explicit === undefined ? {} : { title: explicit },
+        );
+        await postTurn(harness, state, "turn-first", "Here is the summary.");
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        setAiServiceSelection(harness.db, "thread-title", {
+          mode: "automatic",
+        });
+        await postTurn(harness, state, "turn-second", "A second summary.");
+        expect(getThread(harness.db, state.thread.id)?.title).toBe(
+          explicit ?? null,
+        );
+        expect(completeTitle).not.toHaveBeenCalled();
+      });
+    },
+  );
+
+  it("makes one model call when automatic selection has another ready service", async () => {
+    completeTitle.mockRejectedValue(new Error("Title service failed"));
+    await withTestHarness(async (harness) => {
+      installTiming(() => "after-first-reply");
+      const fallback = vi.fn(async () => "Fallback service title");
+      registerFakeAiService(harness.deps.aiServices, {
+        id: "fallback",
+        pluginId: "zzz-fallback",
+        complete: fallback,
+      });
+      const state = await start(
+        harness,
+        "Summarize the service fallback check",
+      );
+      await postTurn(
+        harness,
+        state,
+        "turn-with-failing-ai",
+        "The first model failed.",
+      );
+      await vi.waitFor(() => expect(completeTitle).toHaveBeenCalledTimes(1));
+      expect(getThread(harness.db, state.thread.id)?.title).toBeNull();
+      expect(fallback).not.toHaveBeenCalled();
     });
   });
 });
