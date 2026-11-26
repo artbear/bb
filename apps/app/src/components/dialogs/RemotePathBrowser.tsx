@@ -68,7 +68,6 @@ const NO_ROOTS: HostDirectoryListing["roots"] = [];
 interface RemotePathBrowserProps {
   hostId: string;
   initialPath?: string | null;
-  allowCreateFolder: boolean;
   onDirectoryChange: (directory: string | null) => void;
   disabled?: boolean;
 }
@@ -76,7 +75,6 @@ interface RemotePathBrowserProps {
 export function RemotePathBrowser({
   hostId,
   initialPath = null,
-  allowCreateFolder,
   onDirectoryChange,
   disabled = false,
 }: RemotePathBrowserProps) {
@@ -134,22 +132,6 @@ export function RemotePathBrowser({
     setCurrentPath(path);
   };
 
-  const startCreatingFolder = () => {
-    if (
-      !allowCreateFolder ||
-      disabled ||
-      createFolder.isPending ||
-      !directory ||
-      isError ||
-      isPlaceholderData
-    ) {
-      return;
-    }
-    setNewFolderName("");
-    setNewFolderError(null);
-    setIsCreatingFolder(true);
-  };
-
   const createFolder = useMutation({
     mutationFn: async ({ parent, name }: { parent: string; name: string }) => {
       const path = joinHostPath({ rootPath: parent, relativePath: name });
@@ -176,16 +158,20 @@ export function RemotePathBrowser({
     },
   });
 
+  const interactionDisabled = disabled || createFolder.isPending;
+  const listedDirectory = isError || isPlaceholderData ? null : directory;
+  const canCreateFolderHere = !interactionDisabled && listedDirectory !== null;
+  const selectedDirectory =
+    isCreatingFolder || createFolder.isPending ? null : listedDirectory;
+
+  const startCreatingFolder = () => {
+    setNewFolderName("");
+    setNewFolderError(null);
+    setIsCreatingFolder(true);
+  };
+
   const commitNewFolder = () => {
-    if (
-      disabled ||
-      createFolder.isPending ||
-      !directory ||
-      isError ||
-      isPlaceholderData
-    ) {
-      return;
-    }
+    if (!canCreateFolderHere) return;
     const name = newFolderName.trim();
     const message = getFolderNameValidationMessage(name);
     if (message) {
@@ -193,12 +179,12 @@ export function RemotePathBrowser({
       return;
     }
     setNewFolderError(null);
-    createFolder.mutate({ parent: directory, name });
+    createFolder.mutate({ parent: listedDirectory, name });
   };
 
   useEffect(() => {
-    onDirectoryChange(directory);
-  }, [directory, onDirectoryChange]);
+    onDirectoryChange(selectedDirectory);
+  }, [selectedDirectory, onDirectoryChange]);
 
   useEffect(() => {
     if (isEditing && !isPointerCoarse) editInputRef.current?.focus();
@@ -220,14 +206,6 @@ export function RemotePathBrowser({
     setIsEditing(false);
     if (normalized) navigateTo(normalized);
   };
-
-  const interactionDisabled = disabled || createFolder.isPending;
-  const canCreateFolderHere =
-    allowCreateFolder &&
-    !interactionDisabled &&
-    directory !== null &&
-    !isError &&
-    !isPlaceholderData;
 
   let body: ReactNode;
   if (isError) {
@@ -420,19 +398,17 @@ export function RemotePathBrowser({
                 </span>
               ))}
             </div>
-            {allowCreateFolder ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-7 shrink-0"
-                aria-label="New folder"
-                disabled={!canCreateFolderHere}
-                onClick={startCreatingFolder}
-              >
-                <Icon name="FolderPlus" />
-              </Button>
-            ) : null}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7 shrink-0"
+              aria-label="New folder"
+              disabled={!canCreateFolderHere}
+              onClick={startCreatingFolder}
+            >
+              <Icon name="FolderPlus" />
+            </Button>
             <Button
               type="button"
               variant="ghost"

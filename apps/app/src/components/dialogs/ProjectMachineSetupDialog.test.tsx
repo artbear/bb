@@ -19,6 +19,7 @@ import {
 
 vi.mock("@/lib/sdk", () => ({
   sdk: {
+    files: { mkdir: vi.fn() },
     hosts: {
       cloneDefaultPath: vi.fn(),
       directory: vi.fn(),
@@ -83,9 +84,7 @@ describe("ProjectMachineSetupDialog", () => {
 
     expect(screen.getByText("Set up bb on Mac Studio")).toBeTruthy();
     expect(screen.getByText(gitTarget.gitRemoteUrl!)).toBeTruthy();
-    expect(
-      screen.getByText("Use an existing folder on Mac Studio"),
-    ).toBeTruthy();
+    expect(screen.getByText("Use a folder on Mac Studio")).toBeTruthy();
     expect(await screen.findByText(DEFAULT_CLONE_PATH)).toBeTruthy();
 
     fireEvent.submit(
@@ -177,7 +176,7 @@ describe("ProjectMachineSetupDialog", () => {
     expect(
       await screen.findByText("Target directory is not empty"),
     ).toBeTruthy();
-    expect(screen.getByText(/use the existing-folder option/u)).toBeTruthy();
+    expect(screen.getByText(/choose “Use a folder”/u)).toBeTruthy();
   });
 
   it("submits an existing browsed folder as a local_path source", async () => {
@@ -199,7 +198,7 @@ describe("ProjectMachineSetupDialog", () => {
     });
     const { onComplete } = renderDialog(gitTarget);
 
-    fireEvent.click(screen.getByText("Use an existing folder on Mac Studio"));
+    fireEvent.click(screen.getByText("Use a folder on Mac Studio"));
     await screen.findByText("This folder is empty.");
     const submit = await screen.findByRole("button", {
       name: "Use folder & continue",
@@ -217,19 +216,56 @@ describe("ProjectMachineSetupDialog", () => {
     });
   });
 
-  it("offers only the folder option for a project without a git remote", () => {
-    vi.mocked(sdk.hosts.directory).mockResolvedValue({
-      directory: "/Users/me",
-      parent: null,
+  it("sets up a project without a git remote in a new Windows folder", async () => {
+    const root = "C:\\";
+    const parent = "C:\\work";
+    const child = "C:\\work\\bb";
+    vi.mocked(sdk.hosts.directory).mockImplementation(async ({ path }) => ({
+      directory: path ?? parent,
+      parent: path === child ? parent : root,
       entries: [],
-      roots: ["/"],
+      roots: [root],
+    }));
+    vi.mocked(sdk.files.mkdir).mockResolvedValue({ ok: true });
+    vi.mocked(sdk.hosts.pathsExist).mockResolvedValue({
+      existence: { [parent]: true, [child]: true },
     });
-    renderDialog({ ...gitTarget, gitRemoteUrl: null });
+    const source = { ...createdSource, hostId: "host_win", path: child };
+    vi.mocked(sdk.projects.sources.add).mockResolvedValue(source);
+    const { onComplete } = renderDialog({
+      ...gitTarget,
+      gitRemoteUrl: null,
+      hostId: "host_win",
+      hostName: "Windows",
+    });
 
     expect(screen.queryByText("Clone from the project remote")).toBeNull();
     expect(screen.queryByRole("radio")).toBeNull();
-    expect(
-      screen.getByRole("button", { name: "Use folder & continue" }),
-    ).toBeTruthy();
+    await screen.findByRole("button", { name: "work" });
+    fireEvent.click(screen.getByRole("button", { name: "New folder" }));
+    fireEvent.change(screen.getByLabelText("New folder name"), {
+      target: { value: "bb" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
+    await screen.findByRole("button", { name: "bb" });
+    const submit = screen.getByRole("button", {
+      name: "Use folder & continue",
+    });
+    await waitFor(() => expect(submit.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(submit);
+
+    expect(sdk.files.mkdir).toHaveBeenCalledWith({
+      hostId: "host_win",
+      path: child,
+    });
+    await waitFor(() =>
+      expect(onComplete).toHaveBeenCalledWith({ hostId: "host_win", source }),
+    );
+    expect(sdk.projects.sources.add).toHaveBeenCalledWith({
+      projectId: "proj_test",
+      type: "local_path",
+      hostId: "host_win",
+      path: child,
+    });
   });
 });

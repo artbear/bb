@@ -8,16 +8,13 @@ import { ProjectPathDialog } from "./ProjectPathDialog";
 vi.mock("@/components/dialogs/RemotePathBrowser", () => ({
   RemotePathBrowser: ({
     hostId,
-    allowCreateFolder,
     onDirectoryChange,
   }: {
     hostId: string;
-    allowCreateFolder: boolean;
     onDirectoryChange: (directory: string) => void;
   }) => (
     <button
       type="button"
-      data-allow-create-folder={String(allowCreateFolder)}
       onClick={() =>
         onDirectoryChange(
           hostId === "host_kunst"
@@ -64,13 +61,7 @@ describe("ProjectPathDialog machine selection", () => {
 
     const trigger = screen.getByRole("button", { name: "Machine" });
     expect(trigger.textContent).toContain("atum");
-    expect(
-      (
-        await screen.findByRole("button", {
-          name: "Choose folder on host_atum",
-        })
-      ).getAttribute("data-allow-create-folder"),
-    ).toBe("true");
+    await screen.findByRole("button", { name: "Choose folder on host_atum" });
 
     fireEvent.pointerDown(trigger, { button: 0 });
     expect(

@@ -282,11 +282,10 @@ function ProjectMachineSetupDialogContent({
               selected={option === "folder"}
               disabled={pending}
               onSelect={() => selectOption("folder")}
-              title={`Use an existing folder on ${target.hostName}`}
+              title={`Use a folder on ${target.hostName}`}
             >
               <p className="text-xs text-muted-foreground">
-                Browse {target.hostName}'s files and point at a checkout you
-                already have.
+                Select an existing checkout or create an empty project folder.
               </p>
             </SetupOptionCard>
           </div>
@@ -294,7 +293,6 @@ function ProjectMachineSetupDialogContent({
         {option === "folder" ? (
           <LazyRemotePathBrowser
             hostId={target.hostId}
-            allowCreateFolder={false}
             onDirectoryChange={(directory) => {
               setFolderPath(directory);
               setValidationMessage(null);
@@ -318,8 +316,8 @@ function ProjectMachineSetupDialogContent({
             </p>
             {isTargetNotEmptyError ? (
               <p className="text-sm text-muted-foreground">
-                Pick a different destination, or use the existing-folder option
-                to point at what's already there.
+                Pick a different destination, or choose “Use a folder” to use
+                the checkout already there.
               </p>
             ) : null}
           </div>

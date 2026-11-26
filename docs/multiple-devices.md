@@ -211,7 +211,10 @@ After it connects:
 
 1. To create a project from that machine, choose New project, select the
    machine, and browse to its folder. To map an existing project there instead,
-   add its path or clone source in project settings.
+   choose **Set up** or **Change folder** under **Settings → Projects →
+   Checkouts**. In the folder picker, **New folder** creates and selects a
+   directory on that machine. To create the directory from a script, use
+   `bb file mkdir <path> --host <id>` or `sdk.files.mkdir({ hostId, path })`.
 2. Select the machine when creating a thread, or use `bb thread spawn --machine
 <id-or-name> ...`.
 3. Inspect enrolled machines with `bb machine list`.

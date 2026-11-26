@@ -8,9 +8,14 @@ import {
   waitFor,
 } from "@testing-library/react";
 import type { HostDirectoryListing } from "@bb/server-contract";
+import { createDeferredPromise } from "@bb/test-helpers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sdk } from "@/lib/sdk";
 import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
+import {
+  ProjectPathDialog,
+  type ProjectPathDialogTarget,
+} from "./ProjectPathDialog";
 import {
   RemotePathBrowser,
   getFolderNameValidationMessage,
@@ -66,23 +71,74 @@ describe("getFolderNameValidationMessage", () => {
 });
 
 describe("RemotePathBrowser new folder", () => {
-  it("hides folder creation for existing-folder pickers", async () => {
-    directory.mockResolvedValue(listing("/home/me", ["existing"]));
-    const { wrapper: Wrapper } = createQueryClientTestHarness();
+  it.each(["update", "add-source"] as const)(
+    "submits the newly created Windows folder for %s",
+    async (kind) => {
+      const root = "D:\\";
+      const folderName = "Новый checkout";
+      const child = root + folderName;
+      const childListing = createDeferredPromise<HostDirectoryListing>();
+      directory.mockImplementation(async ({ path }) =>
+        path === child
+          ? childListing.promise
+          : { directory: root, parent: null, entries: [], roots: [root] },
+      );
+      mkdir.mockResolvedValue({ ok: true });
+      const target: ProjectPathDialogTarget =
+        kind === "update"
+          ? {
+              kind,
+              projectId: "proj_bb",
+              projectName: "bb",
+              currentPath: root,
+              hostId: "host_win",
+              hostName: "Windows",
+            }
+          : { kind, projectId: "proj_bb", projectName: "bb" };
+      const onSubmit = vi.fn();
+      const { wrapper: Wrapper } = createQueryClientTestHarness();
+      render(
+        <Wrapper>
+          <ProjectPathDialog
+            target={target}
+            platform="win32"
+            hostId={kind === "update" ? "host_other" : "host_win"}
+            hostName={null}
+            onOpenChange={vi.fn()}
+            onSubmit={onSubmit}
+          />
+        </Wrapper>,
+      );
 
-    render(
-      <Wrapper>
-        <RemotePathBrowser
-          hostId="host_atum"
-          allowCreateFolder={false}
-          onDirectoryChange={vi.fn()}
-        />
-      </Wrapper>,
-    );
+      await screen.findByRole("button", { name: "D:" });
+      const submit = screen.getByRole("button", {
+        name: kind === "update" ? "Save path" : "Add source",
+      });
+      fireEvent.click(screen.getByRole("button", { name: "New folder" }));
+      expect(submit.hasAttribute("disabled")).toBe(true);
+      const input = screen.getByLabelText("New folder name");
+      fireEvent.change(input, { target: { value: folderName } });
+      fireEvent.keyDown(input, { key: "Enter" });
 
-    await screen.findByText("existing");
-    expect(screen.queryByRole("button", { name: "New folder" })).toBeNull();
-  });
+      await waitFor(() =>
+        expect(directory).toHaveBeenCalledWith(
+          expect.objectContaining({ hostId: "host_win", path: child }),
+        ),
+      );
+      expect(mkdir).toHaveBeenCalledWith({ hostId: "host_win", path: child });
+      expect(submit.hasAttribute("disabled")).toBe(true);
+      expect(onSubmit).not.toHaveBeenCalled();
+      childListing.resolve({
+        directory: child,
+        parent: root,
+        entries: [],
+        roots: [root],
+      });
+      await waitFor(() => expect(submit.hasAttribute("disabled")).toBe(false));
+      fireEvent.click(submit);
+      expect(onSubmit).toHaveBeenCalledWith(target, child, "host_win");
+    },
+  );
 
   it("does not create in the previous folder while navigation is loading", async () => {
     let resolveNextDirectory: (value: HostDirectoryListing) => void = () => {};
@@ -98,11 +154,7 @@ describe("RemotePathBrowser new folder", () => {
 
     render(
       <Wrapper>
-        <RemotePathBrowser
-          hostId="host_atum"
-          allowCreateFolder
-          onDirectoryChange={vi.fn()}
-        />
+        <RemotePathBrowser hostId="host_atum" onDirectoryChange={vi.fn()} />
       </Wrapper>,
     );
 
@@ -139,7 +191,6 @@ describe("RemotePathBrowser new folder", () => {
       <Wrapper>
         <RemotePathBrowser
           hostId="host_atum"
-          allowCreateFolder
           onDirectoryChange={onDirectoryChange}
         />
       </Wrapper>,
@@ -178,11 +229,7 @@ describe("RemotePathBrowser new folder", () => {
 
     render(
       <Wrapper>
-        <RemotePathBrowser
-          hostId="host_atum"
-          allowCreateFolder
-          onDirectoryChange={vi.fn()}
-        />
+        <RemotePathBrowser hostId="host_atum" onDirectoryChange={vi.fn()} />
       </Wrapper>,
     );
 
@@ -219,7 +266,6 @@ describe("RemotePathBrowser new folder", () => {
       <Wrapper>
         <RemotePathBrowser
           hostId="host_atum"
-          allowCreateFolder
           onDirectoryChange={onDirectoryChange}
         />
       </Wrapper>,
@@ -234,6 +280,9 @@ describe("RemotePathBrowser new folder", () => {
 
     expect(await screen.findByText(/already exists/)).toBeTruthy();
     expect(onDirectoryChange).not.toHaveBeenCalledWith("/home/me/existing");
+    expect(onDirectoryChange).toHaveBeenLastCalledWith(null);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel new folder" }));
+    expect(onDirectoryChange).toHaveBeenLastCalledWith("/home/me");
   });
 });
 
@@ -258,11 +307,7 @@ describe("RemotePathBrowser entry list", () => {
 
     const { container } = render(
       <Wrapper>
-        <RemotePathBrowser
-          hostId="host_atum"
-          allowCreateFolder={false}
-          onDirectoryChange={vi.fn()}
-        />
+        <RemotePathBrowser hostId="host_atum" onDirectoryChange={vi.fn()} />
       </Wrapper>,
     );
 
@@ -295,11 +340,7 @@ describe("RemotePathBrowser entry list", () => {
 
     const { container } = render(
       <Wrapper>
-        <RemotePathBrowser
-          hostId="host_atum"
-          allowCreateFolder={false}
-          onDirectoryChange={vi.fn()}
-        />
+        <RemotePathBrowser hostId="host_atum" onDirectoryChange={vi.fn()} />
       </Wrapper>,
     );
 

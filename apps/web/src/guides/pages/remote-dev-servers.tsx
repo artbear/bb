@@ -116,9 +116,10 @@ export const guide: Guide = {
               next to the dev box.
             </li>
             <li>
-              Choose <strong>Use an existing folder</strong> and pick your
-              checkout, or <strong>Clone from the project remote</strong> if
-              there isn't one.
+              Choose <strong>Use a folder</strong> to select a checkout or
+              create an empty folder with <strong>New folder</strong>. To clone
+              the repository, choose{" "}
+              <strong>Clone from the project remote</strong>.
             </li>
           </Substeps>
           <p>
