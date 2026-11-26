@@ -362,7 +362,7 @@ describe("electron-builder signing config", () => {
     ]);
   });
 
-  it("installs native plugin build packages for arm64 and x64", async () => {
+  it("installs native plugin build packages for the current CPU by default", async () => {
     const packageJsonText = await readFile(
       resolve(desktopPackageRoot, "..", "..", "package.json"),
       "utf8",
@@ -372,7 +372,7 @@ describe("electron-builder signing config", () => {
     );
 
     expect(packageJson.pnpm.supportedArchitectures).toEqual({
-      cpu: ["arm64", "x64"],
+      cpu: ["current"],
       os: ["current"],
     });
   });
